@@ -1,0 +1,1243 @@
+<title>Vigil Prototype</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<!--
+  Vigil clickable prototype (design only). Published as a claude.ai Artifact.
+  Every place, address and number here is SIMULATED to show how the product will work.
+  The real pipeline (pipeline/ingest.py) has not produced any data yet.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one-screen map app. Top bar with views; map full-bleed with floating controls,
+   a detail panel on the right (bottom sheet on phones); other views scroll as pages. */
+:root {
+  --bg: #f3f4f1;
+  --surface: #fcfcfb;
+  --surface-2: #eceeea;
+  --ink: #131715;
+  --ink-2: #4b524e;
+  --muted: #7e8580;
+  --line: #dadfd9;
+  --accent: #0e6c60;
+  --accent-ink: #ffffff;
+  --accent-wash: rgba(14,108,96,0.10);
+  --map-ground: #e7e9e3;
+  --map-road: #d0d4cd;
+  --map-water: #b4cfdd;
+  --map-park: #d3e1cc;
+  --map-dam: #b19a7a;
+  --map-label: #2c3430;
+  --map-halo: #f3f4f1;
+  --sink-3: #8e1f24;
+  --sink-2: #cf3b36;
+  --sink-1: #ef9a86;
+  --mid: #e0e1db;
+  --rise-1: #9ec5f4;
+  --rise-2: #2a78d6;
+  --good: #0ca30c;
+  --warning: #fab219;
+  --serious: #ec835a;
+  --critical: #d03b3b;
+  --good-ink: #006300;
+  --serious-ink: #a8431b;
+  --shadow: 0 1px 2px rgba(19,23,21,0.06), 0 6px 24px rgba(19,23,21,0.08);
+  --font-display: "Barlow Condensed", "Arial Narrow", "Roboto Condensed", system-ui, sans-serif;
+  --font-body: "Barlow", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-data: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  --r: 10px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e1211; --surface: #161b19; --surface-2: #1e2421; --ink: #edf1ee; --ink-2: #b6beb9;
+    --muted: #858c87; --line: #2a312e; --accent: #43bba8; --accent-ink: #06201c; --accent-wash: rgba(67,187,168,0.14);
+    --map-ground: #131816; --map-road: #252c29; --map-water: #17324a; --map-park: #182a1e; --map-dam: #7c6a52;
+    --map-label: #dfe5e1; --map-halo: #0e1211;
+    --sink-3: #ff7b6c; --sink-2: #d8483f; --sink-1: #874038; --mid: #3c413e; --rise-1: #2c5a8f; --rise-2: #5b9cea;
+    --good-ink: #2fc22f; --serious-ink: #f09a77;
+    --shadow: 0 1px 2px rgba(0,0,0,0.4), 0 8px 28px rgba(0,0,0,0.45);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e1211; --surface: #161b19; --surface-2: #1e2421; --ink: #edf1ee; --ink-2: #b6beb9;
+  --muted: #858c87; --line: #2a312e; --accent: #43bba8; --accent-ink: #06201c; --accent-wash: rgba(67,187,168,0.14);
+  --map-ground: #131816; --map-road: #252c29; --map-water: #17324a; --map-park: #182a1e; --map-dam: #7c6a52;
+  --map-label: #dfe5e1; --map-halo: #0e1211;
+  --sink-3: #ff7b6c; --sink-2: #d8483f; --sink-1: #874038; --mid: #3c413e; --rise-1: #2c5a8f; --rise-2: #5b9cea;
+  --good-ink: #2fc22f; --serious-ink: #f09a77;
+  --shadow: 0 1px 2px rgba(0,0,0,0.4), 0 8px 28px rgba(0,0,0,0.45);
+  color-scheme: dark;
+}
+
+html, body { height: 100%; }
+body {
+  background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 14px; line-height: 1.45;
+  display: flex; flex-direction: column; overflow: hidden;
+}
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--surface); }
+h1, h2, h3 { font-family: var(--font-display); font-weight: 700; letter-spacing: 0.01em; text-wrap: balance; margin: 0; line-height: 1.1; }
+button, input { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.mono { font-family: var(--font-data); font-variant-numeric: tabular-nums; }
+
+/* ---------- top bar ---------- */
+.topbar {
+  position: relative; z-index: 5; flex: none; display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  padding-block: 8px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  background: var(--surface); border-bottom: 1px solid var(--line);
+}
+.brand { display: flex; align-items: center; gap: 8px; text-decoration: none; color: var(--ink); }
+.brand svg { width: 26px; height: 26px; color: var(--accent); }
+.brand b { font-family: var(--font-display); font-size: 22px; letter-spacing: 0.14em; }
+.tabs { display: flex; gap: 2px; flex-wrap: wrap; }
+.tabs a {
+  text-decoration: none; color: var(--ink-2); padding: 6px 10px; border-radius: 8px; font-weight: 500; white-space: nowrap;
+}
+.tabs a:hover { background: var(--surface-2); color: var(--ink); }
+.tabs a[aria-current="page"] { background: var(--accent-wash); color: var(--accent); }
+.sim-pill {
+  margin-left: auto; display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px;
+  border: 1px dashed var(--muted); color: var(--ink-2); font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase;
+  background: repeating-linear-gradient(135deg, transparent 0 6px, var(--surface-2) 6px 12px);
+}
+
+/* ---------- views ---------- */
+main { position: relative; flex: 1; min-height: 0; }
+.view { position: absolute; inset: 0; }
+.page {
+  overflow-y: auto; padding-block: 24px 48px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.page-inner { max-width: 1040px; margin: 0 auto; display: grid; gap: 20px; }
+
+/* ---------- map view ---------- */
+#map-canvas { position: absolute; inset: 0; background: var(--map-ground); }
+.float {
+  position: absolute; z-index: 2; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); box-shadow: var(--shadow);
+}
+.controls {
+  top: max(12px, env(safe-area-inset-top, 0px)); left: max(12px, env(safe-area-inset-left, 0px)); width: 300px; max-width: calc(100% - 24px);
+  padding: 12px; display: grid; gap: 10px;
+}
+.controls h2 { font-size: 17px; }
+.controls .sub { color: var(--ink-2); font-size: 12.5px; margin-top: 2px; }
+.seg { display: grid; grid-template-columns: 1fr 1fr; background: var(--surface-2); border-radius: 8px; padding: 3px; gap: 3px; }
+.seg button { border: 0; background: transparent; padding: 6px 8px; border-radius: 6px; cursor: pointer; font-weight: 600; color: var(--ink-2); }
+.seg button[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,0.12); }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.chip-toggle {
+  border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 3px 10px; cursor: pointer; font-size: 12.5px; color: var(--ink-2);
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.chip-toggle[aria-pressed="true"] { border-color: var(--accent); color: var(--ink); background: var(--accent-wash); }
+.chip-toggle i { width: 8px; height: 8px; border-radius: 2px; background: var(--muted); display: inline-block; }
+.legend { display: grid; gap: 4px; }
+.legend .bar { height: 10px; border-radius: 3px; }
+.legend .ticks { position: relative; height: 16px; font-size: 11px; color: var(--muted); }
+.legend .ticks span { position: absolute; transform: translateX(-50%); white-space: nowrap; }
+.legend .ends { display: flex; justify-content: space-between; font-size: 11.5px; color: var(--ink-2); }
+.legend .cap { font-size: 12px; color: var(--ink-2); }
+
+.timebar {
+  left: 50%; transform: translateX(-50%); bottom: max(12px, env(safe-area-inset-bottom, 0px)); width: min(720px, calc(100% - 24px));
+  padding: 10px 12px; display: grid; gap: 6px;
+}
+.timebar-row { display: flex; align-items: center; gap: 10px; }
+.play {
+  flex: none; width: 34px; height: 34px; border-radius: 50%; border: 0; background: var(--accent); color: var(--accent-ink); cursor: pointer;
+  display: grid; place-items: center;
+}
+.play:disabled { opacity: 0.4; cursor: default; }
+.play svg { width: 14px; height: 14px; }
+.date-readout { font-family: var(--font-data); font-size: 13px; min-width: 96px; }
+.track { position: relative; flex: 1; height: 34px; }
+.track input[type="range"] { position: absolute; inset: 0; width: 100%; margin: 0; background: transparent; appearance: none; -webkit-appearance: none; }
+.track input[type="range"]::-webkit-slider-runnable-track { height: 34px; background: transparent; }
+.track input[type="range"]::-moz-range-track { height: 34px; background: transparent; }
+.track input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 4px; height: 34px; background: var(--ink); border-radius: 2px; }
+.track input[type="range"]::-moz-range-thumb { width: 4px; height: 34px; background: var(--ink); border: 0; border-radius: 2px; }
+.track canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.timebar .note { font-size: 12px; color: var(--ink-2); display: flex; gap: 12px; flex-wrap: wrap; }
+.timebar .note .gapkey { display: inline-flex; align-items: center; gap: 5px; }
+.timebar .note .gapkey i { width: 14px; height: 8px; display: inline-block; background: repeating-linear-gradient(135deg, var(--muted) 0 2px, transparent 2px 5px); border: 1px solid var(--muted); }
+
+.panel {
+  top: max(12px, env(safe-area-inset-top, 0px)); right: max(12px, env(safe-area-inset-right, 0px)); bottom: max(12px, env(safe-area-inset-bottom, 0px));
+  width: 400px; max-width: calc(100% - 24px); overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 14px;
+}
+.panel-close {
+  position: absolute; top: 10px; right: 10px; width: 30px; height: 30px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface);
+  cursor: pointer; display: grid; place-items: center; color: var(--ink-2);
+}
+.eyebrow { font-size: 11.5px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.panel h2 { font-size: 24px; padding-right: 36px; }
+.panel .where { color: var(--ink-2); font-size: 13px; }
+
+/* shared bits */
+.tag {
+  display: inline-block; font-family: var(--font-data); font-size: 10px; font-weight: 500; letter-spacing: 0.06em; padding: 1px 5px; border-radius: 4px;
+  border: 1px solid var(--line); color: var(--ink-2); vertical-align: 2px; white-space: nowrap;
+}
+.status {
+  display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px 3px 7px; border-radius: 999px; font-size: 12.5px; font-weight: 600;
+  border: 1px solid var(--line); background: var(--surface-2); color: var(--ink);
+}
+.status svg { width: 13px; height: 13px; flex: none; }
+.status.good svg { color: var(--good); }
+.status.serious { border-color: var(--serious); }
+.status.serious svg { color: var(--serious); }
+.status.muted { color: var(--ink-2); }
+.status.muted svg { color: var(--muted); }
+.conf { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; }
+.conf .dots { display: inline-flex; gap: 2px; }
+.conf .dots b { width: 7px; height: 7px; border-radius: 50%; border: 1.5px solid var(--ink-2); }
+.conf .dots b.on { background: var(--ink-2); }
+
+.figure { display: grid; gap: 6px; padding: 12px; border-radius: 8px; background: var(--surface-2); }
+.figure .big { font-family: var(--font-display); font-size: 34px; font-weight: 700; line-height: 1; display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+.figure .big small { font-family: var(--font-body); font-size: 14px; font-weight: 500; color: var(--ink-2); }
+.figure .plain { font-size: 13px; color: var(--ink-2); }
+.errbar { width: 100%; height: auto; max-height: 30px; display: block; }
+
+.facts { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 12px; font-size: 13px; margin: 0; }
+.facts dt { color: var(--ink-2); }
+.facts dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+.note { font-size: 12.5px; color: var(--ink-2); }
+.callout { border-left: 3px solid var(--muted); padding: 6px 10px; font-size: 12.5px; color: var(--ink-2); background: var(--surface-2); border-radius: 0 6px 6px 0; }
+.callout.serious { border-left-color: var(--serious); }
+.btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.btn {
+  border: 1px solid var(--line); background: var(--surface); padding: 7px 12px; border-radius: 8px; cursor: pointer; font-weight: 600; text-decoration: none; color: var(--ink);
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.btn:hover { border-color: var(--ink-2); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+
+/* charts */
+.chart { position: relative; }
+.chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+.chart .tip {
+  position: absolute; pointer-events: none; background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow);
+  border-radius: 6px; padding: 5px 8px; font-size: 12px; white-space: nowrap; transform: translate(-50%, -100%); z-index: 3;
+}
+.chart .tip b { font-family: var(--font-data); font-weight: 500; }
+.chart-key { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; color: var(--ink-2); }
+.chart-key span { display: inline-flex; align-items: center; gap: 5px; }
+.chart-key i { display: inline-block; width: 14px; height: 8px; border-radius: 2px; }
+details.table-view summary { cursor: pointer; font-size: 12.5px; color: var(--ink-2); }
+.table-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+th, td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--line); }
+th { font-weight: 600; color: var(--ink-2); font-size: 12px; }
+td.num, th.num { text-align: right; font-family: var(--font-data); font-variant-numeric: tabular-nums; }
+
+/* report */
+.search { position: relative; display: grid; gap: 6px; }
+.search label { font-weight: 600; }
+.search input {
+  width: 100%; padding: 11px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); font-size: 16px;
+}
+.suggest { position: absolute; top: 100%; left: 0; right: 0; z-index: 4; margin-top: 4px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow); overflow: hidden; }
+.suggest button { display: block; width: 100%; text-align: left; border: 0; background: transparent; padding: 8px 12px; cursor: pointer; }
+.suggest button:hover, .suggest button[aria-selected="true"] { background: var(--surface-2); }
+.samples { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; font-size: 12.5px; color: var(--ink-2); }
+.report {
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 24px; display: grid; gap: 20px; box-shadow: var(--shadow);
+}
+.report-head { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; align-items: flex-start; border-bottom: 2px solid var(--ink); padding-bottom: 14px; }
+.report-head h1 { font-size: 34px; }
+.report-meta { font-family: var(--font-data); font-size: 12px; color: var(--ink-2); display: grid; gap: 2px; text-align: right; }
+.summary-line { font-size: 19px; line-height: 1.4; max-width: 62ch; }
+.stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.stat { display: grid; gap: 4px; align-content: start; padding: 12px; background: var(--surface-2); border-radius: 8px; }
+.stat .label { font-size: 12px; color: var(--ink-2); }
+.stat .value { font-family: var(--font-display); font-size: 26px; font-weight: 700; line-height: 1.05; }
+.stat .value small { font-family: var(--font-body); font-size: 12.5px; font-weight: 500; color: var(--ink-2); }
+.two-col { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 20px; }
+.section-title { font-size: 19px; margin-bottom: 8px; }
+.siteplan svg { width: 100%; height: auto; display: block; border-radius: 8px; background: var(--map-ground); }
+.alert-form { display: flex; gap: 8px; flex-wrap: wrap; }
+.alert-form input { flex: 1 1 220px; min-width: 0; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); }
+.form-msg { font-size: 12.5px; color: var(--ink-2); }
+
+/* bridge watch */
+.summary-tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.bw-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; align-items: start; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 16px; display: grid; gap: 12px; }
+.bw-table tr { cursor: pointer; }
+.bw-table tr:hover td { background: var(--surface-2); }
+.bw-table tr[aria-selected="true"] td { background: var(--accent-wash); }
+.spark { width: 90px; height: 24px; display: block; }
+
+/* method */
+.steps { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; counter-reset: step; }
+.steps li { display: grid; grid-template-columns: 36px minmax(0, 1fr); gap: 12px; align-items: start; counter-increment: step; }
+.steps li::before {
+  content: counter(step); font-family: var(--font-display); font-weight: 700; font-size: 18px; width: 32px; height: 32px; border-radius: 50%;
+  display: grid; place-items: center; border: 2px solid var(--accent); color: var(--accent);
+}
+.steps h3 { font-size: 17px; margin-bottom: 2px; }
+.prose { max-width: 68ch; display: grid; gap: 10px; }
+.prose p { margin: 0; }
+.real-vs-sim { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+
+@media (min-width: 641px) {
+  .has-panel .timebar { left: calc(12px + (100% - 436px) / 2); width: min(720px, calc(100% - 460px)); }
+}
+@media (max-width: 860px) {
+  .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .two-col, .bw-layout, .real-vs-sim { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 640px) {
+  .topbar { gap: 8px; }
+  .controls { width: auto; right: max(12px, env(safe-area-inset-right, 0px)); padding: 10px; gap: 8px; }
+  .controls .sub, .legend .cap { display: none; }
+  .panel { top: auto; left: max(8px, env(safe-area-inset-left, 0px)); right: max(8px, env(safe-area-inset-right, 0px)); width: auto; max-width: none; height: 58%; bottom: max(8px, env(safe-area-inset-bottom, 0px)); }
+  .timebar { bottom: max(8px, env(safe-area-inset-bottom, 0px)); }
+  .has-panel .timebar { display: none; }
+  .panel { z-index: 3; }
+  .topbar { row-gap: 4px; }
+  .tabs { order: 3; flex: 1 0 100%; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .sim-pill { margin-left: auto; padding: 3px 8px; font-size: 11px; }
+  .controls .chips { display: none; }
+  .report { padding: 16px; }
+  .report-head h1 { font-size: 28px; }
+  .report-meta { text-align: left; }
+  .summary-tiles { grid-template-columns: minmax(0, 1fr); }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; scroll-behavior: auto !important; } }
+</style>
+
+<header class="topbar">
+  <a class="brand" href="#map" aria-label="Vigil home">
+    <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
+      <path d="M6 22a10 10 0 0 1 20 0"/><path d="M10.5 22a5.5 5.5 0 0 1 11 0"/><circle cx="16" cy="22" r="1.6" fill="currentColor" stroke="none"/><path d="M4 26.5h24"/>
+    </svg>
+    <b>VIGIL</b>
+  </a>
+  <nav class="tabs" aria-label="Views">
+    <a href="#map" data-view="map">Map</a>
+    <a href="#report" data-view="report">Address report</a>
+    <a href="#bridges" data-view="bridges">Bridge watch</a>
+    <a href="#method" data-view="method">How it works</a>
+  </nav>
+  <span class="sim-pill" title="The neighbourhood, addresses and every number in this prototype are made up.">Simulated data</span>
+</header>
+
+<main>
+  <!-- MAP -->
+  <section class="view" id="view-map" aria-label="Map">
+    <div id="map-canvas"></div>
+    <div class="float controls" id="controls">
+      <div>
+        <h2>Larkin Bayou <span class="tag">FICTIONAL</span></h2>
+        <div class="sub">Every building, bridge and dam, coloured by how fast the ground under it moves.</div>
+      </div>
+      <div class="seg" role="group" aria-label="Colour by">
+        <button type="button" id="mode-rate" aria-pressed="true">Rate per year</button>
+        <button type="button" id="mode-replay" aria-pressed="false">Replay 2016–2026</button>
+      </div>
+      <div class="legend" id="legend"></div>
+      <div class="chips" role="group" aria-label="Layers">
+        <button type="button" class="chip-toggle" id="lyr-buildings" aria-pressed="true"><i style="background:var(--sink-2)"></i>Buildings</button>
+        <button type="button" class="chip-toggle" id="lyr-bridges" aria-pressed="true"><i style="background:var(--ink-2)"></i>Bridges</button>
+        <button type="button" class="chip-toggle" id="lyr-dams" aria-pressed="true"><i style="background:var(--map-dam)"></i>Dams</button>
+      </div>
+    </div>
+
+    <div class="float timebar" id="timebar">
+      <div class="timebar-row">
+        <button type="button" class="play" id="play" aria-label="Play replay">
+          <svg viewBox="0 0 14 14" fill="currentColor" aria-hidden="true"><path id="play-icon" d="M3 1.5v11l9-5.5z"/></svg>
+        </button>
+        <span class="date-readout" id="date-readout">22 Mar 2026</span>
+        <div class="track">
+          <canvas id="track-canvas" aria-hidden="true"></canvas>
+          <input type="range" id="time" min="0" max="100" value="100" aria-label="Date">
+        </div>
+      </div>
+      <div class="note">
+        <span id="time-note">Colours show the average rate, Jul 2016 to Mar 2026.</span>
+        <span class="gapkey"><i></i>No satellite data</span>
+      </div>
+    </div>
+
+    <aside class="float panel" id="panel" aria-live="polite"></aside>
+  </section>
+
+  <!-- REPORT -->
+  <section class="view page" id="view-report" aria-label="Address report" hidden>
+    <div class="page-inner">
+      <div class="search">
+        <label for="addr">Look up an address in Larkin Bayou</label>
+        <input id="addr" type="search" autocomplete="off" placeholder="Start typing, for example 412 Heron Bend Ln" role="combobox" aria-expanded="false" aria-controls="suggest">
+        <div class="suggest" id="suggest" role="listbox" hidden></div>
+        <div class="samples" id="samples"><span>Try:</span></div>
+      </div>
+      <article class="report" id="report-card"></article>
+    </div>
+  </section>
+
+  <!-- BRIDGES -->
+  <section class="view page" id="view-bridges" aria-label="Bridge watch" hidden>
+    <div class="page-inner">
+      <div>
+        <div class="eyebrow">Private view for bridge owners</div>
+        <h1 style="font-size:34px">Bridge watch</h1>
+        <p class="note" style="max-width:68ch;margin:6px 0 0">Each bridge and dam gets its own normal pattern: its long-term trend, its seasonal swing and how it responds to temperature. A structure is flagged when new measurements leave that pattern. Flags go privately to the owner first, with the evidence. Vigil never says a structure is unsafe; it shows how it is moving.</p>
+      </div>
+      <div class="summary-tiles" id="bw-tiles"></div>
+      <div class="bw-layout">
+        <div class="card">
+          <h2 class="section-title" style="margin:0">Structures</h2>
+          <div class="table-wrap"><table class="bw-table" id="bw-table"></table></div>
+        </div>
+        <div class="card" id="bw-detail"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- METHOD -->
+  <section class="view page" id="view-method" aria-label="How it works" hidden>
+    <div class="page-inner" id="method-body"></div>
+  </section>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/deck.gl@9.1.15/dist.min.js"></script>
+<script>
+"use strict";
+/* =====================================================================================
+   SIMULATED WORLD. Deterministic (seeded) so every visit shows the same neighbourhood.
+   ===================================================================================== */
+const DAY = 86400000, YEAR = 365.25 * DAY;
+const T0 = Date.UTC(2016, 6, 24), TEND = Date.UTC(2026, 2, 22);
+const GAP = [Date.UTC(2022, 0, 3), Date.UTC(2022, 3, 12)];          // simulated outage
+const NEW_BUILD = Date.UTC(2023, 5, 1), LATE_BUILD = Date.UTC(2025, 4, 1);
+const ANOM_START = Date.UTC(2025, 3, 1);
+const MON = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const fmtDate = t => { const d = new Date(t); return `${d.getUTCDate()} ${MON[d.getUTCMonth()]} ${d.getUTCFullYear()}`; };
+const fmtMonth = t => { const d = new Date(t); return `${MON[d.getUTCMonth()]} ${d.getUTCFullYear()}`; };
+const yrs = t => (t - T0) / YEAR;
+
+function mulberry32(a) { return function () { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+function hash2(i, j) { let h = (i * 374761393 + j * 668265263) ^ 0x5bd1e995; h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; }
+function gauss(rng) { let u = 0, v = 0; while (!u) u = rng(); while (!v) v = rng(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); }
+
+// Sentinel-1-like sampling: 12-day, 6-day while two satellites flew (2017-2021), one outage.
+const EPOCHS = (() => {
+  const out = []; let t = T0;
+  while (t <= TEND) {
+    if (!(t >= GAP[0] && t < GAP[1])) out.push(t);
+    t += ((t >= Date.UTC(2017, 2, 1) && t < Date.UTC(2021, 11, 23)) ? 6 : 12) * DAY;
+  }
+  return out;
+})();
+
+// --- geography (metres, origin at the centre) ---
+const XMIN = -1500, XMAX = 1500, YMIN = -1200, YMAX = 1200, BX = 130, BY = 100, SW = 16;
+const FWY_X = 455;                                                           // freeway centreline
+const bayouY = x => -150 + 140 * Math.sin(x / 420) + 60 * Math.sin(x / 170 + 1);
+const RES = { cx: -1060, cy: 860, rx: 390, ry: 270 };
+const inRes = (x, y, pad = 0) => ((x - RES.cx) / (RES.rx + pad)) ** 2 + ((y - RES.cy) / (RES.ry + pad)) ** 2 < 1;
+const zoneOf = (x, y) => {
+  if (x > 700 && y < -440) return "downtown";
+  if (x > 600 && y > 440) return "industrial";
+  if (x < -790 && y < -590) return "newsub";
+  return "residential";
+};
+const EW_NAMES = ["Coastal Plain Dr","Brazos Bend Ln","Kestrel Ct","Juniper St","Indigo Ln","Hackberry Dr","Larkspur St","Bayou Glen Dr","Sandpiper Ln","Tallow St","Blackland Dr","Redbud Ln","Sycamore St","Mesquite Dr","Prairie View Ln","Egret St","Cattail Dr","Live Oak Ln","Magnolia St","Sabine Dr","Pecan Grove Ln","Bluebonnet St","Cypress Hollow Dr","Willow Creek Ln","Heron Bend Ln"];
+const NS_NAMES = ["Alder","Birch","Cedar","Dogwood","Elm","Fir","Ginkgo","Hawthorn","Ironwood","Jacaranda","Kapok","Linden","Maple","Nutmeg","Oak","Poplar","Quince","Rowan","Spruce","Tamarind","Umber","Viburnum","Walnut","Yew"];
+
+// Ground motion field (mm/yr, + is up): a regional bowl, a stable downtown, settling new homes.
+function motionAt(x, y) {
+  const bowl = -22 * Math.exp(-(((x + 450) ** 2) + ((y - 350) ** 2)) / (2 * 720 ** 2));
+  const rebound = 5 * Math.exp(-(((x - 1080) ** 2) + ((y + 820) ** 2)) / (2 * 430 ** 2));
+  return bowl - 1.2 + rebound;
+}
+function coherenceAt(x, y) {
+  const dB = Math.abs(y - bayouY(x));
+  let c = 0.9 - 0.5 * Math.exp(-((dB - 80) ** 2) / (2 * 45 ** 2));
+  const z = zoneOf(x, y);
+  if (z === "downtown" || z === "industrial") c += 0.04;
+  if (z === "newsub") c -= 0.22;
+  return c;
+}
+const PIX = 30;                                                              // DISP-S1 pixel size
+function pixelValues(x, y) {
+  const i = Math.floor((x - XMIN) / PIX), j = Math.floor((y - YMIN) / PIX);
+  const cx = XMIN + (i + 0.5) * PIX, cy = YMIN + (j + 0.5) * PIX;
+  const n = (hash2(i, j) + hash2(j + 7, i + 3) + hash2(i + 11, j + 5) - 1.5) * 2.2;
+  return { key: i * 10000 + j, v: motionAt(cx, cy) + n, coh: Math.min(0.97, coherenceAt(cx, cy) + (hash2(i + 3, j + 9) - 0.5) * 0.18) };
+}
+
+const ASSETS = [];   // buildings
+const rng = mulberry32(20261106);
+function addBuilding(kind, x0, y0, x1, y1, h, meta) {
+  const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, area = (x1 - x0) * (y1 - y0);
+  ASSETS.push({ id: ASSETS.length, type: "building", kind, polygon: [[x0, y0], [x1, y0], [x1, y1], [x0, y1]], h, cx, cy, area, ...meta });
+}
+for (let i = 0; i < (XMAX - XMIN) / BX; i++) {
+  for (let j = 0; j < (YMAX - YMIN) / BY; j++) {
+    const bx0 = XMIN + i * BX + SW / 2, bx1 = XMIN + (i + 1) * BX - SW / 2;
+    const by0 = YMIN + j * BY + SW / 2, by1 = YMIN + (j + 1) * BY - SW / 2;
+    const cx = (bx0 + bx1) / 2, cy = (by0 + by1) / 2, zone = zoneOf(cx, cy);
+    const blocked = (x, y) => Math.abs(y - bayouY(x)) < 92 || Math.abs(x - FWY_X) < 44 || inRes(x, y, 60);
+    if (zone === "downtown") {
+      const n = 1 + Math.floor(rng() * 3), centre = Math.hypot(cx - 1080, cy + 820);
+      for (let k = 0; k < n; k++) {
+        const w = 26 + rng() * 26, d = 24 + rng() * 24;
+        const x0 = bx0 + 4 + (k % 2) * ((bx1 - bx0) / 2) + rng() * 6, y0 = by0 + 4 + (k > 1 ? (by1 - by0) / 2 : 0) + rng() * 6;
+        const x1 = Math.min(x0 + w, bx1 - 4), y1 = Math.min(y0 + d, by1 - 4);
+        if (blocked((x0 + x1) / 2, (y0 + y1) / 2)) continue;
+        const h = Math.max(24, 190 * Math.exp(-centre / 330) * (0.55 + rng() * 0.6));
+        addBuilding("tower", x0, y0, x1, y1, h, { name: `${["Larkin","Bayou","Calder","Ridge","Union","Harbor"][Math.floor(rng() * 6)]} ${["Tower","Plaza","Center","Building","House"][Math.floor(rng() * 5)]} ${ASSETS.length % 97}`, zone });
+      }
+    } else if (zone === "industrial") {
+      const n = 1 + Math.floor(rng() * 2);
+      for (let k = 0; k < n; k++) {
+        const x0 = bx0 + 3, x1 = bx1 - 3, yh = (by1 - by0 - 6) / n;
+        const y0 = by0 + 3 + k * yh + 2, y1 = by0 + 3 + (k + 1) * yh - 2;
+        if (blocked((x0 + x1) / 2, (y0 + y1) / 2)) continue;
+        addBuilding("warehouse", x0, y0, x1, y1, 8 + rng() * 6, { name: `Warehouse ${i}-${j}${n > 1 ? "ABC"[k] : ""}`, zone });
+      }
+    } else {
+      for (const row of [0, 1]) {
+        let x = bx0 + 2, k = 0;
+        while (x < bx1 - 12) {
+          const lot = 17 + rng() * 3, w = Math.min(lot - 4 - rng() * 2, bx1 - 2 - x), d = 11 + rng() * 4;
+          if (w < 8) break;
+          const y0 = row === 0 ? by0 + 4 : by1 - 4 - d, y1 = y0 + d;
+          if (!blocked(x + w / 2, (y0 + y1) / 2)) {
+            const street = EW_NAMES[(j + row) % EW_NAMES.length], num = 100 + i * 100 + k * 2 + row;
+            addBuilding("house", x, y0, x + w, y1, (zone === "newsub" ? 6.5 : 4.5 + rng() * 3.5), { address: `${num} ${street}`, zone });
+          }
+          x += lot; k++;
+        }
+      }
+    }
+  }
+}
+
+// Attach motion and quality to each building (as the real assets step will: pixels under the footprint).
+const pixelShare = new Map();
+for (const a of ASSETS) {
+  const pv = pixelValues(a.cx, a.cy);
+  a.pixelKey = pv.key;
+  pixelShare.set(pv.key, (pixelShare.get(pv.key) || 0) + 1);
+}
+for (const a of ASSETS) {
+  const r = mulberry32(a.id * 7919 + 13);
+  const npix = Math.max(1, Math.round(a.area / (PIX * PIX)));
+  let v = 0, coh = 0;
+  const samples = Math.min(npix, 9);
+  for (let s = 0; s < samples; s++) {
+    const px = a.polygon[0][0] + (s % 3 + 0.5) / 3 * (a.polygon[1][0] - a.polygon[0][0]);
+    const py = a.polygon[0][1] + (Math.floor(s / 3) % 3 + 0.5) / 3 * (a.polygon[2][1] - a.polygon[0][1]);
+    const pv = samples === 1 ? pixelValues(a.cx, a.cy) : pixelValues(px, py);
+    v += pv.v; coh += pv.coh;
+  }
+  v /= samples; coh /= samples;
+  a.npix = npix; a.coh = coh; a.share = npix === 1 ? pixelShare.get(a.pixelKey) : 0;
+  a.amp = 2.5 + 4 * Math.exp(-Math.abs(a.cy - bayouY(a.cx)) / 300) + r() * 1.2;   // clay swells in wet season
+  a.phase = 0.18 + r() * 0.06;
+  a.start = T0; a.model = "steady"; a.v = v;
+  if (a.zone === "newsub") {
+    a.start = r() < 0.12 ? LATE_BUILD : NEW_BUILD;
+    a.model = "settling"; a.S = 38 + r() * 26; a.tau = 1.1 + r() * 0.6;
+  }
+  // confidence, uncertainty and "no reliable data" reasons
+  const nEp = EPOCHS.filter(t => t >= a.start).length; a.nEpochs = nEp;
+  if (a.start === LATE_BUILD) { a.conf = "none"; a.reason = "Built in 2025. Fewer than 12 months of measurements on the new ground, so no rate yet."; }
+  else if (coh < 0.42) { a.conf = "none"; a.reason = "The radar signal here is unreliable: trees and water along the bayou scramble it."; }
+  else {
+    const small = a.area < PIX * PIX;
+    a.conf = coh >= 0.72 && !small && nEp > 300 ? "high" : coh >= 0.6 ? "medium" : "low";
+    if (a.model === "settling" && a.conf === "high") a.conf = "medium";
+  }
+  a.sigma = (0.35 + 1.6 * (1 - coh)) / Math.sqrt(Math.min(npix, 9)) * (a.model === "settling" ? 1.8 : 1);
+  a.noise = 1.6 + 5 * (1 - coh);                                              // per-epoch scatter, mm
+  a.rate = rateNow(a); a.accel = a.model === "settling" ? a.S / a.tau ** 2 * Math.exp(-(yrs(TEND) - yrs(a.start)) / a.tau) : (r() - 0.5) * 0.4;
+}
+function seasonal(a, t) { return a.amp * (Math.sin(2 * Math.PI * (yrs(t) + a.phase)) - Math.sin(2 * Math.PI * (yrs(a.start) + a.phase))); }
+function dispAt(a, t) {                                                       // modelled vertical displacement, mm
+  if (t < a.start) return null;
+  let d = a.v * yrs(t) - a.v * yrs(a.start) + seasonal(a, t);
+  if (a.model === "settling") d -= a.S * (1 - Math.exp(-(yrs(t) - yrs(a.start)) / a.tau));
+  if (a.anomaly && t > ANOM_START) d -= a.anomaly * ((t - ANOM_START) / YEAR) ** 2;
+  if (a.thermal) d += a.thermal * Math.sin(2 * Math.PI * (yrs(t) + 0.55));
+  return d;
+}
+function rateNow(a) { return a.model === "settling" ? a.v - a.S / a.tau * Math.exp(-(yrs(TEND) - yrs(a.start)) / a.tau) : a.v; }
+function series(a) {
+  if (a._series) return a._series;
+  const r = mulberry32(a.id * 104729 + 7), t = [], y = [];
+  for (const e of EPOCHS) { if (e < a.start) continue; t.push(e); y.push(dispAt(a, e) + gauss(r) * a.noise); }
+  return (a._series = { t, y, sigma: a.noise });
+}
+
+// --- bridges and the dam ---
+const STRUCTS = [];
+const bridgeStreets = [3, 7, 10, 14, 18, 21];
+const thisYear = 2026;
+for (const [n, i] of bridgeStreets.entries()) {
+  const x = XMIN + i * BX, yb = bayouY(x);
+  const r = mulberry32(5000 + i);
+  STRUCTS.push({ id: 10000 + n, type: "bridge", name: `${NS_NAMES[i]} St Bridge`, over: "Larkin Bayou", path: [[x, yb - 78, 7], [x, yb + 78, 7]],
+    cx: x, cy: yb, built: 1962 + Math.floor(r() * 50), deck: 5 + Math.floor(r() * 3), lengthM: 156, owner: "City of Larkin (fictional)" });
+}
+STRUCTS.push({ id: 10010, type: "bridge", name: "Ridge Parkway Bridge", over: "Larkin Bayou", path: [[FWY_X, bayouY(FWY_X) - 120, 10], [FWY_X, bayouY(FWY_X) + 120, 10]],
+  cx: FWY_X, cy: bayouY(FWY_X), built: 1984, deck: 7, lengthM: 240, owner: "State DOT (fictional)", wide: true });
+STRUCTS.push({ id: 10011, type: "bridge", name: "Ridge Parkway at Egret St", over: "Egret St", path: [[FWY_X, 360 - 70, 9], [FWY_X, 360 + 70, 9]],
+  cx: FWY_X, cy: 360, built: 2024, deck: 9, lengthM: 140, owner: "State DOT (fictional)", wide: true, young: true });
+const damPath = [];
+for (let a = -105; a <= 5; a += 5) { const r = a * Math.PI / 180; damPath.push([RES.cx + (RES.rx + 18) * Math.cos(r), RES.cy + (RES.ry + 18) * Math.sin(r), 5]); }
+STRUCTS.push({ id: 10020, type: "dam", name: "Larkin Reservoir Dam", over: "Larkin Reservoir", path: damPath, cx: damPath[11][0], cy: damPath[11][1], built: 1948, lengthM: 820, owner: "County flood control (fictional)", kindLabel: "Earthen embankment dam" });
+for (const s of STRUCTS) {
+  const r = mulberry32(s.id);
+  s.v = motionAt(s.cx, s.cy) * 0.8 + (r() - 0.5); s.amp = s.type === "dam" ? 6.5 : 2.2; s.phase = 0.2; s.thermal = s.type === "bridge" ? 2.4 : 0;
+  s.start = s.young ? Date.UTC(2025, 6, 1) : T0; s.model = "steady"; s.coh = 0.88; s.noise = 1.8; s.npix = Math.max(2, Math.round(s.lengthM / PIX));
+  s.sigma = 0.3; s.conf = s.young ? "none" : "high"; s.nEpochs = EPOCHS.filter(t => t >= s.start).length;
+  if (s.name.startsWith("Hawthorn")) s.anomaly = 9.5;                         // the one that leaves its pattern
+}
+// Normal pattern: trend + seasonal + thermal fitted on history before 2025; band = 2 sigma of residuals.
+for (const s of STRUCTS) {
+  s.rate = s.v;
+  if (s.young) { s.status = "young"; continue; }
+  const ser = series(s), cut = Date.UTC(2025, 0, 1);
+  const model = ser.t.map(t => s.v * yrs(t) + seasonal(s, t) + s.thermal * Math.sin(2 * Math.PI * (yrs(t) + 0.55)));
+  const res = ser.y.map((y, k) => y - model[k]).filter((_, k) => ser.t[k] < cut);
+  const sd = Math.sqrt(res.reduce((m, v) => m + v * v, 0) / res.length);
+  s.pattern = { model, band: 2 * sd, sd };
+  let firstOut = null, run = 0, maxZ = 0;
+  ser.t.forEach((t, k) => {
+    const z = (ser.y[k] - model[k]) / sd;
+    if (t >= cut) maxZ = Math.max(maxZ, Math.abs(z));
+    if (t >= cut && Math.abs(z) > 2) { run++; if (run === 3 && !firstOut) firstOut = ser.t[k - 2]; } else run = 0;
+  });
+  s.score = maxZ; s.status = firstOut && s.anomaly ? "outside" : "normal"; s.since = firstOut;
+  const k = ser.t.length - 1; s.lastDev = ser.y[k] - model[k];
+}
+
+/* =====================================================================================
+   THEME + COLOUR
+   ===================================================================================== */
+let C = {};
+function hexToRgb(h) { h = h.trim().replace("#", ""); return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)]; }
+function readTheme() {
+  const cs = getComputedStyle(document.documentElement), g = n => hexToRgb(cs.getPropertyValue(n));
+  C = { ground: g("--map-ground"), road: g("--map-road"), water: g("--map-water"), park: g("--map-park"), dam: g("--map-dam"), label: g("--map-label"), halo: g("--map-halo"),
+    ink: g("--ink"), ink2: g("--ink-2"), muted: g("--muted"), accent: g("--accent"), serious: g("--serious"), good: g("--good"),
+    stops: ["--sink-3", "--sink-2", "--sink-1", "--mid", "--rise-1", "--rise-2"].map(g) };
+}
+const RATE_STOPS = [-24, -14, -5, 0, 2.5, 5];         // mm/yr
+const DISP_STOPS = [-220, -130, -45, 0, 20, 45];      // mm since 2016
+function ramp(v, stops) {
+  if (v <= stops[0]) return C.stops[0];
+  for (let k = 1; k < stops.length; k++) {
+    if (v <= stops[k]) { const f = (v - stops[k - 1]) / (stops[k] - stops[k - 1]), a = C.stops[k - 1], b = C.stops[k]; return [0, 1, 2].map(c => Math.round(a[c] + (b[c] - a[c]) * f)); }
+  }
+  return C.stops[stops.length - 1];
+}
+const rgb = c => `rgb(${c[0]},${c[1]},${c[2]})`;
+
+/* =====================================================================================
+   STATE
+   ===================================================================================== */
+const state = { mode: "rate", tIndex: EPOCHS.length - 1, playing: false, layers: { buildings: true, bridges: true, dams: true }, selected: null };
+const allAssets = () => ASSETS.concat(STRUCTS);
+const byId = id => (id >= 10000 ? STRUCTS.find(s => s.id === id) : ASSETS[id]);
+
+/* =====================================================================================
+   MAP (deck.gl)
+   ===================================================================================== */
+const MPD_X = 111320, MPD_Y = 110574;
+const PHONE = () => matchMedia("(max-width: 640px)").matches;
+let deckgl = null, mapError = null;
+const groundPoly = [[XMIN - 300, YMIN - 300], [XMAX + 300, YMIN - 300], [XMAX + 300, YMAX + 300], [XMIN - 300, YMAX + 300]];
+const waterPoly = (() => { const up = [], lo = []; for (let x = XMIN - 300; x <= XMAX + 300; x += 15) { up.push([x, bayouY(x) + 24]); lo.push([x, bayouY(x) - 24]); } return up.concat(lo.reverse()); })();
+const parkPoly = (() => { const up = [], lo = []; for (let x = XMIN - 300; x <= XMAX + 300; x += 15) { up.push([x, bayouY(x) + 86]); lo.push([x, bayouY(x) - 86]); } return up.concat(lo.reverse()); })();
+const resPoly = (() => { const p = []; for (let a = 0; a < 360; a += 6) { const r = a * Math.PI / 180; p.push([RES.cx + RES.rx * Math.cos(r), RES.cy + RES.ry * Math.sin(r)]); } return p; })();
+const ROADS = (() => {
+  const r = [];
+  for (let i = 0; i <= (XMAX - XMIN) / BX; i++) r.push({ path: [[XMIN + i * BX, YMIN - 300], [XMIN + i * BX, YMAX + 300]], w: i % 5 === 0 ? 22 : 13 });
+  for (let j = 0; j <= (YMAX - YMIN) / BY; j++) r.push({ path: [[XMIN - 300, YMIN + j * BY], [XMAX + 300, YMIN + j * BY]], w: j % 5 === 0 ? 22 : 13 });
+  r.push({ path: [[FWY_X, YMIN - 300], [FWY_X, YMAX + 300]], w: 40, fwy: true });
+  return r;
+})();
+const LABELS = [
+  { text: "Larkin Bayou", pos: [-1150, bayouY(-1150), 2] },
+  { text: "Larkin Reservoir", pos: [RES.cx, RES.cy, 2] },
+  { text: "Ridge Parkway", pos: [FWY_X + 70, -900, 2] },
+  { text: "Downtown", pos: [1100, -1000, 200] },
+];
+
+function assetColor(a) {
+  if (a.conf === "none") return [...C.muted, 150];
+  if (state.mode === "rate") return ramp(a.rate, RATE_STOPS);
+  const d = dispAt(a, EPOCHS[state.tIndex]);
+  return d === null ? [...C.muted, 70] : ramp(d, DISP_STOPS);
+}
+function structColor(s) {
+  if (s.type === "dam") return C.dam;
+  if (s.status === "outside") return C.serious;
+  return C.ink2;
+}
+function buildLayers() {
+  const L = deck, M = L.COORDINATE_SYSTEM.METER_OFFSETS, origin = [0, 0, 0];
+  const common = { coordinateSystem: M, coordinateOrigin: origin };
+  const sel = state.selected;
+  const layers = [
+    new L.SolidPolygonLayer({ id: "ground", data: [{ polygon: groundPoly }], getPolygon: d => d.polygon, getFillColor: C.ground, ...common }),
+    new L.SolidPolygonLayer({ id: "parks", data: [{ polygon: parkPoly }], getPolygon: d => d.polygon, getFillColor: C.park, ...common }),
+    new L.PathLayer({ id: "roads", data: ROADS, getPath: d => d.path, getWidth: d => d.w, widthUnits: "meters", getColor: d => d.fwy ? C.ink2.map((v, c) => Math.round(v * 0.45 + C.road[c] * 0.55)) : C.road, ...common, updateTriggers: { getColor: [C.road] } }),
+    new L.SolidPolygonLayer({ id: "water", data: [{ polygon: waterPoly }, { polygon: resPoly }], getPolygon: d => d.polygon, getFillColor: C.water, ...common }),
+  ];
+  if (state.layers.buildings) layers.push(new L.SolidPolygonLayer({
+    id: "buildings", data: ASSETS, extruded: true, pickable: true, autoHighlight: true, highlightColor: [...C.accent, 220],
+    getPolygon: d => d.polygon, getElevation: d => d.h, getFillColor: assetColor,
+    material: { ambient: 0.5, diffuse: 0.55, shininess: 16, specularColor: [40, 40, 40] },
+    updateTriggers: { getFillColor: [state.mode, state.tIndex, C.stops] }, ...common,
+  }));
+  if (sel && sel.type === "building") layers.push(new L.PathLayer({
+    id: "selection", data: [sel], getPath: d => d.polygon.concat([d.polygon[0]]).map(p => [p[0], p[1], d.h + 0.5]), getWidth: 3, widthUnits: "pixels",
+    getColor: C.accent, ...common,
+  }));
+  const structs = STRUCTS.filter(s => (s.type === "bridge" && state.layers.bridges) || (s.type === "dam" && state.layers.dams));
+  if (structs.length) {
+    layers.push(new L.PathLayer({
+      id: "structures", data: structs, pickable: true, autoHighlight: true, highlightColor: [...C.accent, 255],
+      getPath: d => d.path, getWidth: d => d.type === "dam" ? 34 : d.wide ? 34 : 18, widthUnits: "meters", capRounded: true,
+      getColor: structColor, ...common, updateTriggers: { getColor: [C.serious, C.ink2, C.dam] },
+    }));
+    layers.push(new L.ScatterplotLayer({
+      id: "struct-markers", data: structs.filter(s => s.status === "outside" || (sel && sel.id === s.id)), getPosition: d => [d.cx, d.cy, (d.path[0][2] || 5) + 2],
+      getRadius: 10, radiusUnits: "pixels", stroked: true, filled: false, lineWidthUnits: "pixels", getLineWidth: 2.5,
+      getLineColor: d => (sel && sel.id === d.id) ? C.accent : C.serious, ...common, updateTriggers: { getLineColor: [sel && sel.id] },
+    }));
+  }
+  layers.push(new L.TextLayer({
+    id: "labels", data: LABELS, getText: d => d.text, getPosition: d => d.pos, getSize: 13, getColor: C.label, fontFamily: "Barlow Condensed, Arial Narrow, sans-serif",
+    fontWeight: 700, fontSettings: { sdf: true }, outlineWidth: 4, outlineColor: [...C.halo, 230], characterSet: "auto", ...common,
+    parameters: { depthCompare: "always", depthWriteEnabled: false },
+  }));
+  return layers;
+}
+function tooltip({ object }) {
+  if (!object) return null;
+  const a = object, title = a.address || a.name;
+  let line;
+  if (a.type !== "building") line = a.status === "outside" ? "Moving outside its normal pattern" : a.status === "young" ? "Not enough history yet" : "Within its normal pattern";
+  else if (a.conf === "none") line = "No reliable data";
+  else if (state.mode === "rate") line = `${fmtSigned(a.rate)} ± ${a.sigma.toFixed(1)} mm/yr`;
+  else { const d = dispAt(a, EPOCHS[state.tIndex]); line = d === null ? "Not built yet" : `${fmtSigned(d, 0)} mm since 2016`; }
+  return { html: `<b>${esc(title)}</b><br>${line}`, style: { background: rgb(C.ink), color: rgb(C.halo), fontFamily: "Barlow, system-ui, sans-serif", fontSize: "12.5px", borderRadius: "6px", padding: "6px 8px" } };
+}
+function initMap() {
+  if (!window.deck) { mapError = "The 3D map library did not load (offline?). The other views still work."; showMapError(); return; }
+  try {
+    deckgl = new deck.Deck({
+      parent: document.getElementById("map-canvas"),
+      views: new deck.MapView({ repeat: false }),
+      initialViewState: PHONE() ? { longitude: 0, latitude: -150 / MPD_Y, zoom: 13.2, pitch: 50, bearing: -22, maxPitch: 70, minZoom: 12, maxZoom: 18.5 }
+        : { longitude: 420 / MPD_X, latitude: 40 / MPD_Y, zoom: 14.25, pitch: 54, bearing: -22, maxPitch: 70, minZoom: 12.5, maxZoom: 18.5 },
+      controller: { dragRotate: true, touchRotate: true },
+      layers: buildLayers(), getTooltip: tooltip,
+      onClick: info => { if (info.object) select(info.object, false); },
+      onError: e => { mapError = String(e && e.message || e); showMapError(); },
+    });
+  } catch (e) { mapError = String(e.message || e); showMapError(); }
+}
+function showMapError() {
+  const m = document.getElementById("map-canvas");
+  m.innerHTML = `<div style="position:absolute;inset:0;display:grid;place-items:center;padding:24px;text-align:center;color:var(--ink-2)">${esc(mapError)}</div>`;
+}
+const refresh = () => { if (deckgl) deckgl.setProps({ layers: buildLayers() }); };
+function flyTo(a) {
+  if (!deckgl) return;
+  deckgl.setProps({ initialViewState: { longitude: a.cx / MPD_X, latitude: a.cy / MPD_Y, zoom: a.type === "building" ? 16.6 : 15.6, pitch: 55, bearing: -22, maxPitch: 70, minZoom: 12.5, maxZoom: 18.5,
+    transitionDuration: matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 1100, transitionInterpolator: new deck.FlyToInterpolator() } });
+}
+
+/* =====================================================================================
+   SMALL UI HELPERS
+   ===================================================================================== */
+function esc(s) { return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
+function fmtSigned(v, dp = 1) { const s = Math.abs(v).toFixed(dp); return (v < 0 ? "−" : v > 0 ? "+" : "") + s; }
+const tag = t => `<span class="tag" title="${t === "MEASURED" ? "Read from the satellite data" : t === "DERIVED" ? "Computed from the measurements" : "Model output"}">${t}</span>`;
+const ICON = {
+  check: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><circle cx="8" cy="8" r="6.5" stroke-width="1.6"/><path d="M5 8.2l2 2 4-4.2"/></svg>',
+  diamond: '<svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 1l7 7-7 7-7-7z"/><path d="M7.2 4.5h1.6v4.6H7.2zM7.2 10.3h1.6v1.6H7.2z" fill="#fff"/></svg>',
+  clock: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="8" cy="8" r="6.5"/><path d="M8 4.5V8l2.5 1.5"/></svg>',
+  slash: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="8" cy="8" r="6.5"/><path d="M3.5 12.5l9-9"/></svg>',
+  close: '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3.5 3.5l9 9M12.5 3.5l-9 9"/></svg>',
+};
+function statusChip(a) {
+  if (a.type !== "building") {
+    if (a.status === "outside") return `<span class="status serious">${ICON.diamond}Moving outside its normal pattern</span>`;
+    if (a.status === "young") return `<span class="status muted">${ICON.clock}Not enough history yet</span>`;
+    return `<span class="status good">${ICON.check}Within its normal pattern</span>`;
+  }
+  if (a.conf === "none") return `<span class="status muted">${ICON.slash}No reliable data</span>`;
+  return "";
+}
+function confChip(conf) {
+  const n = { high: 3, medium: 2, low: 1, none: 0 }[conf];
+  return `<span class="conf"><span class="dots" aria-hidden="true">${[1, 2, 3].map(k => `<b class="${k <= n ? "on" : ""}"></b>`).join("")}</span>${conf[0].toUpperCase() + conf.slice(1)} confidence</span>`;
+}
+function confWhy(a) {
+  if (a.conf === "high") return "Several pixels, steady radar signal, full history.";
+  if (a.conf === "medium") return a.area < PIX * PIX ? "Smaller than one 30 m pixel, so this is the motion of the ground around it." : "Shorter history or a weaker radar signal.";
+  if (a.conf === "low") return "Weak radar signal here: treat as approximate.";
+  return a.reason || "";
+}
+function plainMotion(rate) {
+  const r = Math.abs(rate);
+  if (r < 1.5) return "About stable.";
+  const inch = r * 10 / 25.4;
+  return `${rate < 0 ? "Sinking" : "Rising"} about ${r.toFixed(0)} mm a year, roughly ${inch < 0.95 ? `${inch.toFixed(1)} in` : `${inch.toFixed(1)} in`} per decade.`;
+}
+
+// Error bar: the value with its 2-sigma whisker on a fixed -25..+6 mm/yr scale.
+function errBar(v, s) {
+  const lo = -25, hi = 6, W = 300, x = u => 8 + (Math.max(lo, Math.min(hi, u)) - lo) / (hi - lo) * (W - 16);
+  return `<svg class="errbar" viewBox="0 0 ${W} 27" role="img" aria-label="${fmtSigned(v)} plus or minus ${(2 * s).toFixed(1)} millimetres per year (2 sigma)">
+    <line x1="8" x2="${W - 8}" y1="11" y2="11" stroke="var(--line)" stroke-width="2"/>
+    <line x1="${x(0)}" x2="${x(0)}" y1="4" y2="18" stroke="var(--muted)" stroke-width="1"/>
+    <text x="${x(0)}" y="26" font-size="8" text-anchor="middle" fill="var(--muted)">0</text>
+    <line x1="${x(v - 2 * s)}" x2="${x(v + 2 * s)}" y1="11" y2="11" stroke="var(--ink)" stroke-width="2"/>
+    <line x1="${x(v - 2 * s)}" x2="${x(v - 2 * s)}" y1="7" y2="15" stroke="var(--ink)" stroke-width="2"/>
+    <line x1="${x(v + 2 * s)}" x2="${x(v + 2 * s)}" y1="7" y2="15" stroke="var(--ink)" stroke-width="2"/>
+    <circle cx="${x(v)}" cy="11" r="5" fill="${rgb(a_rateColor(v))}" stroke="var(--surface)" stroke-width="2"/></svg>`;
+}
+const a_rateColor = v => ramp(v, RATE_STOPS);
+
+/* =====================================================================================
+   CHART: displacement over time, with uncertainty band, gap shading and hover readout
+   ===================================================================================== */
+function niceTicks(lo, hi, n = 5) {
+  const span = hi - lo, step0 = span / n, mag = 10 ** Math.floor(Math.log10(step0)), r = step0 / mag;
+  const step = (r < 1.5 ? 1 : r < 3 ? 2 : r < 7 ? 5 : 10) * mag, out = [];
+  for (let v = Math.ceil(lo / step) * step; v <= hi + 1e-9; v += step) out.push(Math.round(v * 1e6) / 1e6);
+  return out;
+}
+function drawChart(host, a, opts = {}) {
+  const ser = series(a), W = opts.w || 560, H = opts.h || 230, m = { l: 44, r: 12, t: 14, b: 26 };
+  const pattern = a.pattern;
+  let lo = Infinity, hi = -Infinity;
+  ser.y.forEach((y, k) => { lo = Math.min(lo, y - ser.sigma); hi = Math.max(hi, y + ser.sigma); if (pattern) { lo = Math.min(lo, pattern.model[k] - pattern.band); hi = Math.max(hi, pattern.model[k] + pattern.band); } });
+  const pad = (hi - lo) * 0.08; lo -= pad; hi += pad;
+  if (hi < 2) hi = 2;
+  const X = t => m.l + (t - T0) / (TEND - T0) * (W - m.l - m.r), Y = v => m.t + (hi - v) / (hi - lo) * (H - m.t - m.b);
+  const yT = niceTicks(lo, hi, 5), years = []; for (let y = 2017; y <= 2026; y++) years.push(Date.UTC(y, 0, 1));
+  const gaps = [GAP];
+  if (a.start > T0) gaps.unshift([T0, a.start]);
+  // split the line at the gaps so nothing is drawn across missing data
+  const segs = []; let cur = [];
+  ser.t.forEach((t, k) => { if (k && ser.t[k] - ser.t[k - 1] > 40 * DAY) { segs.push(cur); cur = []; } cur.push(k); });
+  segs.push(cur);
+  const line = idx => idx.map((k, n) => `${n ? "L" : "M"}${X(ser.t[k]).toFixed(1)},${Y(ser.y[k]).toFixed(1)}`).join("");
+  const band = (idx, f, g) => idx.map((k, n) => `${n ? "L" : "M"}${X(ser.t[k]).toFixed(1)},${Y(f(k)).toFixed(1)}`).join("") + idx.slice().reverse().map(k => `L${X(ser.t[k]).toFixed(1)},${Y(g(k)).toFixed(1)}`).join("") + "Z";
+  const flagFrom = a.status === "outside" ? a.since : null;
+  const lineColor = "var(--ink)";
+  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(opts.label || "Vertical displacement since 2016")}">
+    <defs><pattern id="hatch-${a.id}" width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="5" height="5" fill="var(--surface-2)"/><line x1="0" y1="0" x2="0" y2="5" stroke="var(--line)" stroke-width="2"/></pattern></defs>
+    ${gaps.map(g => `<rect x="${X(g[0])}" y="${m.t}" width="${Math.max(2, X(g[1]) - X(g[0]))}" height="${H - m.t - m.b}" fill="url(#hatch-${a.id})"/>`).join("")}
+    ${yT.map(v => `<line x1="${m.l}" x2="${W - m.r}" y1="${Y(v)}" y2="${Y(v)}" stroke="var(--line)" stroke-width="${v === 0 ? 1.4 : 0.8}"/><text x="${m.l - 6}" y="${Y(v) + 3.5}" font-size="10" text-anchor="end" fill="var(--muted)" font-family="IBM Plex Mono, monospace">${v}</text>`).join("")}
+    ${years.map(t => `<text x="${X(t)}" y="${H - 8}" font-size="10" text-anchor="middle" fill="var(--muted)" font-family="IBM Plex Mono, monospace">${new Date(t).getUTCFullYear()}</text>`).join("")}
+    <text x="${m.l}" y="${m.t - 4}" font-size="10" fill="var(--muted)">mm</text>`;
+  if (pattern) svg += segs.map(idx => `<path d="${band(idx, k => pattern.model[k] + pattern.band, k => pattern.model[k] - pattern.band)}" fill="var(--accent)" fill-opacity="0.2" stroke="none"/>`).join("");
+  else svg += segs.map(idx => `<path d="${band(idx, k => ser.y[k] + ser.sigma, k => ser.y[k] - ser.sigma)}" fill="${rgb(C.stops[4])}" fill-opacity="0.35" stroke="none"/>`).join("");
+  if (flagFrom) svg += `<rect x="${X(flagFrom)}" y="${m.t}" width="${X(TEND) - X(flagFrom)}" height="${H - m.t - m.b}" fill="var(--serious)" fill-opacity="0.12"/>
+    <text x="${X(flagFrom) - 4}" y="${m.t + 12}" font-size="10.5" text-anchor="end" fill="var(--serious-ink)" font-weight="600">outside pattern →</text>`;
+  svg += segs.map(idx => `<path d="${line(idx)}" fill="none" stroke="${lineColor}" stroke-width="${pattern ? 1.4 : 2}" stroke-linejoin="round"/>`).join("");
+  if (flagFrom) { const idx = ser.t.map((t, k) => k).filter(k => ser.t[k] >= flagFrom); svg += `<path d="${line(idx)}" fill="none" stroke="var(--serious)" stroke-width="2.4"/>`; }
+  if (state.mode === "replay" && opts.marker !== false) svg += `<line x1="${X(EPOCHS[state.tIndex])}" x2="${X(EPOCHS[state.tIndex])}" y1="${m.t}" y2="${H - m.b}" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="3 3"/>`;
+  const endLow = Y(ser.y[ser.y.length - 1]) > (m.t + H - m.b) / 2;
+  svg += `<text x="${W - m.r - 2}" y="${endLow ? m.t + 12 : H - m.b - 6}" font-size="10" text-anchor="end" fill="var(--muted)" letter-spacing="2">SIMULATED</text>`;
+  svg += `<g class="hover" visibility="hidden"><line class="hx" y1="${m.t}" y2="${H - m.b}" stroke="var(--ink-2)" stroke-width="1"/><circle class="hc" r="4.5" fill="var(--surface)" stroke="var(--ink)" stroke-width="2"/></g>`;
+  svg += `<rect x="${m.l}" y="${m.t}" width="${W - m.l - m.r}" height="${H - m.t - m.b}" fill="transparent" class="hit"/></svg>`;
+  host.innerHTML = `<div class="chart">${svg}<div class="tip" hidden></div></div>`;
+  const root = host.querySelector(".chart"), el = root.querySelector("svg"), tip = root.querySelector(".tip"), g = el.querySelector(".hover");
+  const onMove = ev => {
+    const p = el.createSVGPoint(), src = ev.touches ? ev.touches[0] : ev; p.x = src.clientX; p.y = src.clientY;
+    const q = p.matrixTransform(el.getScreenCTM().inverse()), t = T0 + (q.x - m.l) / (W - m.l - m.r) * (TEND - T0);
+    let best = 0; for (let k = 1; k < ser.t.length; k++) if (Math.abs(ser.t[k] - t) < Math.abs(ser.t[best] - t)) best = k;
+    const inGap = gaps.some(gp => t >= gp[0] && t < gp[1]);
+    const x = X(ser.t[best]), y = Y(ser.y[best]);
+    g.setAttribute("visibility", "visible"); g.querySelector(".hx").setAttribute("x1", x); g.querySelector(".hx").setAttribute("x2", x);
+    const c = g.querySelector(".hc"); c.setAttribute("cx", x); c.setAttribute("cy", y);
+    const rect = el.getBoundingClientRect(), sc = rect.width / W;
+    tip.hidden = false; tip.style.left = `${x * sc}px`; tip.style.top = `${y * sc - 10}px`;
+    tip.innerHTML = inGap ? `No satellite data here` : `${fmtDate(ser.t[best])} · <b>${fmtSigned(ser.y[best])} ± ${ser.sigma.toFixed(1)} mm</b>` +
+      (pattern ? `<br>pattern ${fmtSigned(pattern.model[best])} mm` : "");
+  };
+  const hit = el.querySelector(".hit");
+  hit.addEventListener("mousemove", onMove); hit.addEventListener("touchmove", onMove, { passive: true });
+  hit.addEventListener("mouseleave", () => { g.setAttribute("visibility", "hidden"); tip.hidden = true; });
+}
+function chartKey(a) {
+  if (a.pattern) return `<div class="chart-key"><span><i style="background:var(--ink);height:2px"></i>Measured</span><span><i style="background:var(--accent);opacity:.35"></i>Normal pattern (±2σ)</span>${a.status === "outside" ? '<span><i style="background:var(--serious);height:3px"></i>Outside pattern</span>' : ""}</div>`;
+  return `<div class="chart-key"><span><i style="background:var(--ink);height:2px"></i>Vertical movement since ${fmtMonth(a.start)}</span><span><i style="background:${rgb(C.stops[4])};opacity:.6"></i>±1σ measurement scatter</span><span><i style="background:repeating-linear-gradient(135deg,var(--line) 0 2px,transparent 2px 5px)"></i>No data</span></div>`;
+}
+function tableView(a) {
+  const ser = series(a), rows = [];
+  for (let y = 2016; y <= 2026; y++) {
+    const k = ser.t.findIndex(t => new Date(t).getUTCFullYear() === y && new Date(t).getUTCMonth() >= (y === 2016 ? 6 : 2));
+    if (k >= 0) rows.push(`<tr><td>${fmtDate(ser.t[k])}</td><td class="num">${fmtSigned(ser.y[k])}</td><td class="num">±${ser.sigma.toFixed(1)}</td></tr>`);
+  }
+  return `<details class="table-view"><summary>Show as a table</summary><div class="table-wrap"><table><thead><tr><th>Date</th><th class="num">Movement (mm)</th><th class="num">1σ (mm)</th></tr></thead><tbody>${rows.join("")}</tbody></table></div></details>`;
+}
+
+/* =====================================================================================
+   DETAIL PANEL (map)
+   ===================================================================================== */
+const panel = document.getElementById("panel");
+function renderPanel() {
+  const a = state.selected;
+  document.getElementById("view-map").classList.toggle("has-panel", !!a);
+  if (!a) { panel.hidden = true; return; }
+  panel.hidden = false;
+  const isB = a.type === "building";
+  const kind = isB ? { house: "Home", tower: "Office tower", warehouse: "Warehouse" }[a.kind] : a.type === "dam" ? a.kindLabel : "Bridge";
+  const title = a.address || a.name;
+  let html = `<button class="panel-close" type="button" aria-label="Close details" id="panel-close">${ICON.close}</button>
+    <div><div class="eyebrow">${esc(kind)}</div><h2>${esc(title)}</h2><div class="where">${isB ? `Larkin Bayou · ${a.zone === "newsub" ? "Larkin Meadows subdivision" : a.zone}` : `Over ${esc(a.over)} · built ${a.built} · ${esc(a.owner)}`}</div></div>`;
+  if (!isB) html += structPanel(a);
+  else if (a.conf === "none") {
+    html += `<div>${statusChip(a)}</div><div class="callout">${esc(a.reason)}</div>
+      <p class="note">Vigil shows no number when the data cannot support one. This home still gets a report, which explains what is missing.</p>`;
+  } else {
+    html += `<div class="figure"><div class="eyebrow">Vertical movement rate ${a.model === "settling" ? "(last 12 months)" : "(2016–2026)"}</div>
+      <div class="big">${fmtSigned(a.rate)} <small>± ${a.sigma.toFixed(1)} mm/yr ${tag("DERIVED")}</small></div>
+      ${errBar(a.rate, a.sigma)}
+      <div class="plain">${plainMotion(a.rate)} Whisker shows ±2σ.</div></div>
+      <div>${confChip(a.conf)}<div class="note" style="margin-top:2px">${esc(confWhy(a))}</div></div>
+      <div id="panel-chart"></div>${chartKey(a)}
+      <dl class="facts">
+        <dt>Moved since ${fmtMonth(a.start)}</dt><dd>${fmtSigned(dispAt(a, TEND), 0)} ± ${(a.noise).toFixed(0)} mm ${tag("DERIVED")}</dd>
+        <dt>Seasonal swing</dt><dd>±${a.amp.toFixed(1)} mm ${tag("DERIVED")}</dd>
+        <dt>Change in rate</dt><dd>${fmtSigned(a.accel)} mm/yr² ${tag("DERIVED")}</dd>
+        <dt>Satellite passes used</dt><dd>${a.nEpochs} ${tag("MEASURED")}</dd>
+        <dt>30 m pixels under it</dt><dd>${a.npix}${a.share > 1 ? ` (shared with ${a.share - 1} neighbour${a.share > 2 ? "s" : ""})` : ""} ${tag("MEASURED")}</dd>
+        <dt>Radar signal quality</dt><dd>${a.coh.toFixed(2)} ${tag("MEASURED")}</dd>
+        <dt>Viewing geometry</dt><dd>ascending + descending</dd>
+      </dl>
+      <p class="note">Measured at about 30 m resolution. ${a.area < PIX * PIX ? "A home is smaller than one pixel, so this is the ground around it, not the house alone." : ""}</p>`;
+  }
+  html += `<div class="btn-row">${isB && a.address ? `<a class="btn primary" href="#report" data-report="${a.id}">Open address report</a>` : ""}${!isB ? `<a class="btn primary" href="#bridges" data-bridge="${a.id}">Open in Bridge watch</a>` : ""}</div>`;
+  panel.innerHTML = html;
+  panel.querySelector("#panel-close").onclick = () => { state.selected = null; renderPanel(); refresh(); };
+  const pc = panel.querySelector("#panel-chart");
+  if (pc) drawChart(pc, a, { w: 380, h: 200 });
+  const sc = panel.querySelector("#struct-chart");
+  if (sc) drawChart(sc, a, { w: 380, h: 200, label: "Movement compared with this structure's normal pattern" });
+  panel.querySelectorAll("[data-report]").forEach(b => b.addEventListener("click", () => { reportFor(+b.dataset.report); }));
+  panel.querySelectorAll("[data-bridge]").forEach(b => b.addEventListener("click", () => { bwSelect(+b.dataset.bridge); }));
+}
+function structPanel(s) {
+  let h = `<div>${statusChip(s)}</div>`;
+  if (s.status === "young") return h + `<div class="callout">Opened in 2024. Vigil needs at least 12 months of measurements to learn a structure's normal seasonal and temperature pattern. First check: ${fmtMonth(Date.UTC(2026, 6, 1))}.</div>`;
+  if (s.status === "outside") h += `<div class="callout serious">Since ${fmtMonth(s.since)}, measurements sit below the pattern this bridge has followed since 2016. Latest pass: ${fmtSigned(s.lastDev)} mm from the pattern, ${s.score.toFixed(1)} times its usual scatter. Vigil shares this privately with the owner first, with the evidence below.</div>`;
+  else h += `<p class="note" style="margin:0">Every pass since 2016 falls inside the pattern this ${s.type} has learned: its trend, its seasonal swing and its response to temperature.</p>`;
+  h += `<div id="struct-chart"></div>${chartKey(s)}
+    <dl class="facts">
+      <dt>Long-term rate</dt><dd>${fmtSigned(s.rate)} ± ${s.sigma.toFixed(1)} mm/yr ${tag("DERIVED")}</dd>
+      <dt>Usual scatter around pattern</dt><dd>±${s.pattern.sd.toFixed(1)} mm ${tag("DERIVED")}</dd>
+      <dt>Largest deviation since Jan 2025</dt><dd>${s.score.toFixed(1)}σ ${tag("ESTIMATED")}</dd>
+      <dt>Satellite passes used</dt><dd>${s.nEpochs} ${tag("MEASURED")}</dd>
+      ${s.type === "bridge" ? `<dt>Deck condition (inventory)</dt><dd>${s.deck} of 9</dd>` : ""}
+      <dt>Length</dt><dd>${s.lengthM} m</dd>
+    </dl>`;
+  return h;
+}
+function select(a, fly) {
+  state.selected = a; renderPanel(); refresh();
+  if (fly) flyTo(a);
+}
+
+/* =====================================================================================
+   CONTROLS: mode, layers, time
+   ===================================================================================== */
+const timeInput = document.getElementById("time");
+timeInput.max = EPOCHS.length - 1; timeInput.value = state.tIndex;
+function renderLegend() {
+  const stops = state.mode === "rate" ? RATE_STOPS : DISP_STOPS, lo = stops[0], hi = stops[stops.length - 1];
+  const pos = v => ((v - lo) / (hi - lo) * 100).toFixed(2);
+  const grad = stops.map((v, k) => `${rgb(C.stops[k])} ${pos(v)}%`).join(", ");
+  const ticks = state.mode === "rate" ? [-24, -14, -5, 0, 5] : [-200, -100, 0, 40];
+  document.getElementById("legend").innerHTML = `
+    <div class="cap">${state.mode === "rate" ? "Vertical movement, mm per year" : `Total vertical movement since 2016, mm, on ${fmtDate(EPOCHS[state.tIndex])}`}</div>
+    <div class="bar" style="background:linear-gradient(90deg, ${grad})"></div>
+    <div class="ticks">${ticks.map(v => `<span class="mono" style="left:${pos(v)}%;${v === lo ? "transform:none" : v === hi ? "transform:translateX(-100%)" : ""}">${v > 0 ? "+" : ""}${v}</span>`).join("")}</div>
+    <div class="ends"><span>◀ sinking</span><span><i style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${rgb(C.muted)};vertical-align:-1px"></i> no reliable data</span><span>rising ▶</span></div>`;
+}
+function setMode(m) {
+  state.mode = m;
+  document.getElementById("mode-rate").setAttribute("aria-pressed", m === "rate");
+  document.getElementById("mode-replay").setAttribute("aria-pressed", m === "replay");
+  if (m === "rate") { stopPlay(); state.tIndex = EPOCHS.length - 1; timeInput.value = state.tIndex; }
+  document.getElementById("play").disabled = false;
+  updateTimeText(); renderLegend(); refresh(); if (state.selected) renderPanel();
+}
+function updateTimeText() {
+  document.getElementById("date-readout").textContent = fmtDate(EPOCHS[state.tIndex]);
+  document.getElementById("time-note").textContent = state.mode === "rate"
+    ? "Colours show the average rate, Jul 2016 to Mar 2026. Press play to replay the movement."
+    : `Total movement since Jul 2016. Pass ${state.tIndex + 1} of ${EPOCHS.length}; satellites revisit every 6 to 12 days.`;
+}
+let playTimer = null, lastPanelDraw = 0;
+function stopPlay() { state.playing = false; clearInterval(playTimer); playTimer = null; setPlayIcon(); }
+function setPlayIcon() {
+  document.getElementById("play-icon").setAttribute("d", state.playing ? "M3 1.5h3v11H3zM8 1.5h3v11H8z" : "M3 1.5v11l9-5.5z");
+  document.getElementById("play").setAttribute("aria-label", state.playing ? "Pause replay" : "Play replay");
+}
+function step() {
+  state.tIndex = Math.min(EPOCHS.length - 1, state.tIndex + 2);
+  timeInput.value = state.tIndex; onTime();
+  if (state.tIndex >= EPOCHS.length - 1) stopPlay();
+}
+function onTime() {
+  updateTimeText(); refresh();
+  if (state.mode === "replay") renderLegend();
+  const now = performance.now();
+  if (state.selected && now - lastPanelDraw > 250) { lastPanelDraw = now; renderPanel(); }
+}
+document.getElementById("play").addEventListener("click", () => {
+  if (state.playing) { stopPlay(); return; }
+  if (state.mode !== "replay") setMode("replay");
+  if (state.tIndex >= EPOCHS.length - 1) { state.tIndex = 0; timeInput.value = 0; }
+  state.playing = true; setPlayIcon();
+  playTimer = setInterval(step, 50);
+});
+timeInput.addEventListener("input", () => { state.tIndex = +timeInput.value; if (state.mode !== "replay") setMode("replay"); onTime(); });
+document.getElementById("mode-rate").onclick = () => setMode("rate");
+document.getElementById("mode-replay").onclick = () => setMode("replay");
+for (const k of ["buildings", "bridges", "dams"]) {
+  const b = document.getElementById(`lyr-${k}`);
+  b.onclick = () => { state.layers[k] = !state.layers[k]; b.setAttribute("aria-pressed", state.layers[k]); refresh(); };
+}
+function drawTrack() {
+  const cv = document.getElementById("track-canvas"), r = cv.getBoundingClientRect(), dpr = devicePixelRatio || 1;
+  if (!r.width) return;
+  cv.width = r.width * dpr; cv.height = r.height * dpr;
+  const g = cv.getContext("2d"); g.scale(dpr, dpr);
+  const x = t => 2 + (t - T0) / (TEND - T0) * (r.width - 4);
+  g.fillStyle = rgb(C.muted); g.globalAlpha = 0.55;
+  for (const t of EPOCHS) g.fillRect(x(t), r.height / 2 - 5, 1, 10);
+  g.globalAlpha = 1;
+  const gx0 = x(GAP[0]), gx1 = x(GAP[1]);
+  g.save(); g.beginPath(); g.rect(gx0, r.height / 2 - 8, gx1 - gx0, 16); g.clip(); g.strokeStyle = rgb(C.muted); g.lineWidth = 1.2;
+  for (let k = -20; k < 40; k += 4) { g.beginPath(); g.moveTo(gx0 + k, r.height / 2 + 8); g.lineTo(gx0 + k + 16, r.height / 2 - 8); g.stroke(); }
+  g.restore();
+  g.fillStyle = rgb(C.ink2); g.font = "10px IBM Plex Mono, monospace"; g.textAlign = "center";
+  for (const y of [2017, 2019, 2021, 2023, 2025]) g.fillText(String(y), x(Date.UTC(y, 0, 1)), r.height - 1);
+}
+
+/* =====================================================================================
+   ADDRESS REPORT
+   ===================================================================================== */
+const HOMES = ASSETS.filter(a => a.address);
+const addr = document.getElementById("addr"), sugg = document.getElementById("suggest");
+const pickSample = (pred) => HOMES.find(pred);
+const SAMPLES = [
+  pickSample(a => a.conf === "medium" && a.rate < -17 && a.zone === "residential"),
+  pickSample(a => a.zone === "newsub" && a.conf !== "none"),
+  pickSample(a => a.conf === "none" && a.zone === "residential"),
+].filter(Boolean);
+let reportId = SAMPLES[0] ? SAMPLES[0].id : HOMES[0].id;
+let sel = -1;
+document.getElementById("samples").innerHTML += SAMPLES.map(s => `<button type="button" class="chip-toggle" data-id="${s.id}">${esc(s.address)}</button>`).join("");
+document.querySelectorAll("#samples [data-id]").forEach(b => b.onclick = () => { reportFor(+b.dataset.id); });
+function suggestions(q) {
+  q = q.trim().toLowerCase(); if (!q) return [];
+  return HOMES.filter(h => h.address.toLowerCase().includes(q)).slice(0, 8);
+}
+function renderSuggest() {
+  const list = suggestions(addr.value);
+  sugg.hidden = !list.length; addr.setAttribute("aria-expanded", String(!!list.length));
+  sugg.innerHTML = list.map((h, k) => `<button type="button" role="option" aria-selected="${k === sel}" data-id="${h.id}">${esc(h.address)}</button>`).join("");
+  sugg.querySelectorAll("button").forEach(b => b.onmousedown = e => { e.preventDefault(); reportFor(+b.dataset.id); });
+}
+addr.addEventListener("input", () => { sel = -1; renderSuggest(); });
+addr.addEventListener("keydown", e => {
+  const list = suggestions(addr.value);
+  if (e.key === "ArrowDown") { sel = Math.min(list.length - 1, sel + 1); renderSuggest(); e.preventDefault(); }
+  else if (e.key === "ArrowUp") { sel = Math.max(0, sel - 1); renderSuggest(); e.preventDefault(); }
+  else if (e.key === "Enter") { const h = list[Math.max(0, sel)]; if (h) reportFor(h.id); e.preventDefault(); }
+  else if (e.key === "Escape") { sugg.hidden = true; }
+});
+addr.addEventListener("blur", () => setTimeout(() => { sugg.hidden = true; addr.setAttribute("aria-expanded", "false"); }, 120));
+function reportFor(id) {
+  reportId = id; addr.value = ASSETS[id].address; sugg.hidden = true;
+  if (location.hash !== "#report") location.hash = "report"; else renderReport();
+}
+function nearby(a, km = 1.3) {
+  return STRUCTS.map(s => ({ s, d: Math.hypot(s.cx - a.cx, s.cy - a.cy) })).filter(o => o.d <= km * 1000).sort((p, q) => p.d - q.d);
+}
+function sitePlan(a) {
+  const R = 170, W = 340, H = 240, sx = W / (2 * R), X = x => (x - a.cx + R) * sx, Y = y => H / 2 - (y - a.cy) * sx;
+  const near = ASSETS.filter(b => Math.abs(b.cx - a.cx) < R + 20 && Math.abs(b.cy - a.cy) < H / sx / 2 + 20);
+  const rect = b => { const p = b.polygon; return `x="${X(p[0][0]).toFixed(1)}" y="${Y(p[2][1]).toFixed(1)}" width="${((p[1][0] - p[0][0]) * sx).toFixed(1)}" height="${((p[2][1] - p[0][1]) * sx).toFixed(1)}"`; };
+  const water = []; for (let x = a.cx - R - 20; x <= a.cx + R + 20; x += 8) water.push([X(x), Y(bayouY(x))]);
+  const pi = Math.floor((a.cx - XMIN) / PIX), pj = Math.floor((a.cy - YMIN) / PIX);
+  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Site plan: buildings within about 170 metres, coloured by movement rate">
+    <polyline points="${water.map(p => p.join(",")).join(" ")}" fill="none" stroke="${rgb(C.water)}" stroke-width="${48 * sx}"/>
+    ${near.map(b => `<rect ${rect(b)} fill="${b.conf === "none" ? rgb(C.muted) : rgb(ramp(b.rate, RATE_STOPS))}" ${b.id === a.id ? `stroke="var(--ink)" stroke-width="2.5"` : `stroke="var(--map-ground)" stroke-width="1"`}/>`).join("")}
+    <rect x="${X(XMIN + pi * PIX)}" y="${Y(YMIN + (pj + 1) * PIX)}" width="${PIX * sx}" height="${PIX * sx}" fill="none" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="4 3"/>
+    <text x="${X(XMIN + pi * PIX) + PIX * sx + 4}" y="${Y(YMIN + (pj + 1) * PIX) + 10}" font-size="10" fill="var(--accent)" font-weight="600" stroke="var(--map-ground)" stroke-width="3" paint-order="stroke">30 m pixel</text>
+    <rect x="6" y="${H - 30}" width="${50 * sx + 14}" height="24" rx="4" fill="var(--surface)" fill-opacity="0.9"/>
+    <line x1="12" x2="${12 + 50 * sx}" y1="${H - 12}" y2="${H - 12}" stroke="var(--ink-2)" stroke-width="2"/><text x="12" y="${H - 16}" font-size="10" fill="var(--ink-2)">50 m</text>
+    <rect x="${W - 36}" y="4" width="30" height="18" rx="4" fill="var(--surface)" fill-opacity="0.9"/>
+    <text x="${W - 10}" y="17" font-size="11" text-anchor="end" fill="var(--ink-2)" font-weight="600">N ↑</text></svg>`;
+}
+function renderReport() {
+  const a = ASSETS[reportId], rep = document.getElementById("report-card");
+  const rid = `VG-LB-${String(a.id).padStart(5, "0")}`;
+  const nb = nearby(a);
+  const nbRows = nb.length ? nb.map(o => `<tr><td>${esc(o.s.name)}</td><td class="num">${(o.d / 1000).toFixed(1)} km</td><td>${statusChip(o.s)}</td></tr>`).join("")
+    : `<tr><td colspan="3">No bridges or dams within 1.3 km.</td></tr>`;
+  let body;
+  if (a.conf === "none") {
+    body = `<p class="summary-line">We cannot give a reliable movement figure for this address.</p>
+      <div class="callout">${esc(a.reason)}</div>
+      <p class="note">When the data cannot support a number, the report says so instead of guessing. Nearby areas with reliable data are shown on the site plan.</p>
+      <div class="two-col"><div><h2 class="section-title">Site plan</h2><div class="siteplan">${sitePlan(a)}</div></div>
+      <div><h2 class="section-title">Bridges and dams within 1.3 km</h2><div class="table-wrap"><table><tbody>${nbRows}</tbody></table></div></div></div>`;
+  } else {
+    const total = dispAt(a, TEND), inch = Math.abs(total) / 25.4;
+    body = `<p class="summary-line">Since ${fmtMonth(a.start)}, the ground under this address has moved <b>${total < 0 ? "down" : "up"} about ${Math.abs(total).toFixed(0)} mm</b> (${inch.toFixed(1)} in), give or take ${a.noise.toFixed(0)} mm. ${a.model === "settling" ? "Most of that happened in the first year after the homes were built, and it is slowing down." : plainMotion(a.rate)}</p>
+      <div class="stats">
+        <div class="stat"><span class="label">Rate ${tag("DERIVED")}</span><span class="value">${fmtSigned(a.rate)} <small>± ${a.sigma.toFixed(1)} mm/yr</small></span>${errBar(a.rate, a.sigma)}</div>
+        <div class="stat"><span class="label">Total since ${a.start === T0 ? "2016" : fmtMonth(a.start)} ${tag("DERIVED")}</span><span class="value">${fmtSigned(total, 0)} <small>± ${a.noise.toFixed(0)} mm</small></span></div>
+        <div class="stat"><span class="label">Seasonal swing ${tag("DERIVED")}</span><span class="value">±${a.amp.toFixed(1)} <small>mm</small></span><span class="note">Clay soil swells in wet months and shrinks in dry ones.</span></div>
+        <div class="stat"><span class="label">Confidence</span><span class="value" style="font-size:20px">${confChip(a.conf)}</span><span class="note">${esc(confWhy(a))}</span></div>
+      </div>
+      <div><h2 class="section-title">Movement history</h2><div id="report-chart"></div>${chartKey(a)}${tableView(a)}</div>
+      <div class="two-col">
+        <div><h2 class="section-title">Site plan</h2><div class="siteplan">${sitePlan(a)}</div>
+          <p class="note">The dashed square is one radar pixel. ${a.share > 1 ? `This home shares its pixel with ${a.share - 1} neighbour${a.share > 2 ? "s" : ""}, so they get the same figures.` : ""}</p></div>
+        <div style="display:grid;gap:16px;align-content:start">
+          <div><h2 class="section-title">Gaps in the data</h2><table><tbody>
+            ${a.start > T0 ? `<tr><td>Before ${fmtMonth(a.start)}</td><td>Homes not built yet</td></tr>` : ""}
+            <tr><td>${fmtDate(GAP[0])} to ${fmtDate(GAP[1])}</td><td>No satellite passes</td></tr>
+            <tr><td>After ${fmtDate(TEND)}</td><td>Not processed yet</td></tr></tbody></table></div>
+          <div><h2 class="section-title">Bridges and dams within 1.3 km</h2><div class="table-wrap"><table><tbody>${nbRows}</tbody></table></div></div>
+        </div>
+      </div>`;
+  }
+  rep.innerHTML = `<div class="report-head"><div><div class="eyebrow">Ground movement report</div><h1>${esc(a.address)}</h1><div class="note">Larkin Bayou (fictional) · ${a.zone === "newsub" ? "Larkin Meadows subdivision" : "residential"}</div></div>
+      <div class="report-meta"><span>Report ${rid}</span><span>Data through ${fmtDate(TEND)}</span><span>Simulated example</span></div></div>
+    ${body}
+    <div style="display:grid;gap:8px"><h2 class="section-title" style="margin:0">Watch this address</h2>
+      <form class="alert-form" id="alert-form"><label for="alert-email" class="note" style="flex-basis:100%">Get an email if the ground here starts moving outside its normal pattern.</label>
+        <input id="alert-email" type="email" required placeholder="you@example.com"><button class="btn primary" type="submit">Watch this address</button></form>
+      <div class="form-msg" id="form-msg" aria-live="polite"></div></div>
+    <div class="callout"><b>How to read this.</b> Every number has a tag: ${tag("MEASURED")} comes straight from the satellite data, ${tag("DERIVED")} is computed from it, ${tag("ESTIMATED")} is a model output. Figures come from radar satellites (Sentinel-1) processed by NASA's OPERA project at about 30 m resolution, checked against GPS stations. In the product this report exports to PDF. In this prototype every number is simulated.</div>
+    <div class="btn-row"><a class="btn" href="#map" id="report-to-map">See it on the 3D map</a></div>`;
+  const rc = document.getElementById("report-chart");
+  if (rc) drawChart(rc, a, { w: 640, h: 240, marker: false });
+  document.getElementById("alert-form").addEventListener("submit", e => { e.preventDefault(); document.getElementById("form-msg").textContent = "In the product this would start a watch and confirm by email. This prototype sends nothing."; });
+  document.getElementById("report-to-map").addEventListener("click", () => { pendingSelect = a; });
+}
+
+/* =====================================================================================
+   BRIDGE WATCH
+   ===================================================================================== */
+let bwId = (STRUCTS.find(s => s.status === "outside") || STRUCTS[0]).id;
+function spark(s) {
+  const ser = series(s), W = 90, H = 24, ys = ser.y, lo = Math.min(...ys), hi = Math.max(...ys);
+  const X = t => 1 + (t - T0) / (TEND - T0) * (W - 2), Y = v => 2 + (hi - v) / (hi - lo || 1) * (H - 4);
+  const d = ser.t.map((t, k) => `${k ? "L" : "M"}${X(t).toFixed(1)},${Y(ys[k]).toFixed(1)}`).join("");
+  const k = ser.t.length - 1;
+  return `<svg class="spark" viewBox="0 0 ${W} ${H}" aria-hidden="true"><path d="${d}" fill="none" stroke="var(--ink-2)" stroke-width="1.2"/><circle cx="${X(ser.t[k])}" cy="${Y(ys[k])}" r="2.5" fill="${s.status === "outside" ? "var(--serious)" : "var(--ink)"}"/></svg>`;
+}
+function renderBridges() {
+  const n = STRUCTS.length, out = STRUCTS.filter(s => s.status === "outside").length, young = STRUCTS.filter(s => s.status === "young").length;
+  document.getElementById("bw-tiles").innerHTML = `
+    <div class="stat"><span class="label">Structures watched</span><span class="value">${n}</span><span class="note">${STRUCTS.filter(s => s.type === "bridge").length} bridges, 1 dam</span></div>
+    <div class="stat"><span class="label">Moving outside their normal pattern</span><span class="value">${out}</span><span class="note">${out ? "Owner told privately first" : "None right now"}</span></div>
+    <div class="stat"><span class="label">Still learning a pattern</span><span class="value">${young}</span><span class="note">Need 12 months of history</span></div>`;
+  const order = STRUCTS.slice().sort((p, q) => ({ outside: 0, normal: 1, young: 2 }[p.status] - { outside: 0, normal: 1, young: 2 }[q.status]) || (q.score || 0) - (p.score || 0));
+  document.getElementById("bw-table").innerHTML = `<thead><tr><th>Structure</th><th>Status</th><th class="num">Deviation</th><th>Since 2016</th></tr></thead><tbody>${order.map(s => `
+    <tr tabindex="0" data-id="${s.id}" aria-selected="${s.id === bwId}"><td><b>${esc(s.name)}</b><br><span class="note">over ${esc(s.over)} · ${s.built}</span></td><td>${statusChip(s)}</td>
+    <td class="num">${s.score ? `${s.score.toFixed(1)}σ` : "–"}</td><td>${s.status === "young" ? '<span class="note">from 2025</span>' : spark(s)}</td></tr>`).join("")}</tbody>`;
+  document.querySelectorAll("#bw-table tr[data-id]").forEach(tr => {
+    tr.onclick = () => bwSelect(+tr.dataset.id);
+    tr.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); bwSelect(+tr.dataset.id); } };
+  });
+  const s = byId(bwId), d = document.getElementById("bw-detail");
+  d.innerHTML = `<div><div class="eyebrow">${s.type === "dam" ? esc(s.kindLabel) : "Bridge"} · ${esc(s.owner)}</div><h2 style="font-size:24px">${esc(s.name)}</h2></div>${structPanel(s)}
+    <div class="btn-row"><a class="btn" href="#map" id="bw-to-map">Show on the 3D map</a></div>`;
+  const sc = d.querySelector("#struct-chart"); if (sc) drawChart(sc, s, { w: 480, h: 220, marker: false, label: "Movement compared with this structure's normal pattern" });
+  d.querySelector("#bw-to-map").addEventListener("click", () => { pendingSelect = s; });
+}
+function bwSelect(id) { bwId = id; if (location.hash !== "#bridges") location.hash = "bridges"; else renderBridges(); }
+
+/* =====================================================================================
+   HOW IT WORKS
+   ===================================================================================== */
+function renderMethod() {
+  document.getElementById("method-body").innerHTML = `
+    <div><div class="eyebrow">How Vigil works</div><h1 style="font-size:34px">From radar echoes to your front door</h1></div>
+    <div class="card"><ol class="steps">
+      <li><div><h3>Radar satellites pass overhead</h3><p class="note" style="margin:0">Sentinel-1 satellites image the same ground every 6 to 12 days, day or night, through cloud.</p></div></li>
+      <li><div><h3>NASA turns the echoes into ground movement</h3><p class="note" style="margin:0">The OPERA project publishes free displacement maps for North America (DISP-S1), about 30 m per pixel, back to 2016.</p></div></li>
+      <li><div><h3>Vigil fits each pixel's history</h3><p class="note" style="margin:0">A trend, a seasonal swing and any sudden steps, with an uncertainty on every figure. Gaps stay gaps.</p></div></li>
+      <li><div><h3>Two viewing angles become up and down</h3><p class="note" style="margin:0">The satellite looks sideways. Combining its northbound and southbound passes separates vertical from east-west motion.</p></div></li>
+      <li><div><h3>GPS stations check the result</h3><p class="note" style="margin:0">Satellite rates are compared with independent GPS stations, and the error is published.</p></div></li>
+      <li><div><h3>Every building, bridge and dam gets an answer</h3><p class="note" style="margin:0">A movement history with a confidence level, or a plain reason why the data cannot support one.</p></div></li>
+      <li><div><h3>Structures are watched for change</h3><p class="note" style="margin:0">Each bridge and dam learns its normal pattern. Leaving it triggers a private note to the owner, with the evidence.</p></div></li>
+    </ol></div>
+    <div class="real-vs-sim">
+      <div class="card"><h2 class="section-title" style="margin:0">Real, from NASA's catalogue (checked 6 Nov 2026)</h2>
+        <p class="note" style="margin:0">Data that already exists for Vigil's first city, Houston (northwest Harris County):</p>
+        <div class="table-wrap"><table><thead><tr><th>Frame</th><th>Pass</th><th class="num">Passes</th><th>Dates</th></tr></thead><tbody>
+          <tr><td class="mono">F38238</td><td>descending</td><td class="num">449</td><td>24 Jul 2016 to 22 Mar 2026</td></tr>
+          <tr><td class="mono">F8882</td><td>ascending</td><td class="num">269</td><td>9 Oct 2016 to 19 Feb 2026</td></tr></tbody></table></div>
+        <p class="note" style="margin:0">Both cover 100% of the Houston study area ${tag("MEASURED")}. New data arrives in batches, months after each pass.</p></div>
+      <div class="card"><h2 class="section-title" style="margin:0">Simulated, in this prototype</h2>
+        <p class="note" style="margin:0">Larkin Bayou, its addresses, buildings, bridges, the dam and every movement figure are invented to show how the product will look and behave. The patterns are realistic (a subsidence bowl, seasonal clay swelling, settling new homes, one bridge leaving its pattern), but nothing here is a measurement.</p></div>
+    </div>
+    <div class="card prose"><h2 class="section-title" style="margin:0">Rules Vigil keeps</h2>
+      <p>Every number shows where it came from: ${tag("MEASURED")} ${tag("DERIVED")} ${tag("ESTIMATED")}.</p>
+      <p>Every value for a building, bridge or dam has a confidence level and an error bar.</p>
+      <p>Vigil never calls a structure unsafe. It says when one is moving outside its normal pattern and shows the evidence.</p>
+      <p>When the data cannot support a number, Vigil says so and explains why.</p></div>`;
+}
+
+/* =====================================================================================
+   ROUTING + BOOT
+   ===================================================================================== */
+const VIEWS = ["map", "report", "bridges", "method"];
+let pendingSelect = null, mapStarted = false;
+function route() {
+  const v = VIEWS.includes(location.hash.slice(1)) ? location.hash.slice(1) : "map";
+  for (const name of VIEWS) document.getElementById(`view-${name}`).hidden = name !== v;
+  document.querySelectorAll(".tabs a").forEach(a => { if (a.dataset.view === v) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current"); });
+  if (v !== "map") stopPlay();
+  if (v === "map") {
+    if (!mapStarted) { mapStarted = true; initMap(); }
+    requestAnimationFrame(drawTrack);
+    if (pendingSelect) { const a = pendingSelect; pendingSelect = null; setTimeout(() => select(a, true), 60); }
+  }
+  if (v === "report") { if (!addr.value) addr.value = ASSETS[reportId].address; renderReport(); }
+  if (v === "bridges") renderBridges();
+  if (v === "method") renderMethod();
+}
+function retheme() {
+  readTheme(); renderLegend(); drawTrack(); refresh();
+  if (state.selected) renderPanel();
+  const v = location.hash.slice(1);
+  if (v === "report") renderReport(); else if (v === "bridges") renderBridges();
+}
+readTheme();
+// Open with an example selected so the first view shows what a click does.
+state.selected = PHONE() ? null : ASSETS.find(a => a.address && a.conf === "medium" && a.rate < -18) || null;
+renderLegend(); updateTimeText(); renderPanel();
+window.addEventListener("hashchange", route);
+window.addEventListener("resize", drawTrack);
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", retheme);
+new MutationObserver(retheme).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+route();
+</script>
