@@ -150,7 +150,7 @@ class _RangeHandler(http.server.BaseHTTPRequestHandler):
         srv = self.server
         srv.requests.append(
             {"method": self.command, "path": self.path, "auth": self.headers.get("Authorization"),
-             "range": self.headers.get("Range")}
+             "proxy_auth": self.headers.get("Proxy-Authorization"), "range": self.headers.get("Range")}
         )
         path = srv.root / unquote(urlparse(self.path).path.lstrip("/"))
         if not path.is_file():

@@ -34,13 +34,16 @@ from __future__ import annotations
 import argparse
 import base64
 import concurrent.futures as cf
+import errno
 import json
 import logging
 import multiprocessing
 import os
 import re
 import shlex
+import signal
 import sys
+import threading
 import time
 import urllib.request
 from dataclasses import dataclass, field
@@ -133,9 +136,26 @@ class MissingLayerError(FatalError):
     """A product lacks a layer the pipeline needs."""
 
 
+class GeometryError(FatalError):
+    """The product grid cannot serve this region (no overlap, inconsistent georeferencing)."""
+
+
+class NotRetryable(IngestError):
+    """This item failed in a way a retry cannot fix (e.g. HTTP 404). Other items continue."""
+
+
+class LocalDiskError(FatalError):
+    """Writing to local disk failed (full, read-only, no permission): stop the run."""
+
+
 def _redact(text: str) -> str:
-    """Drop query strings from URLs in messages (signed URLs carry credentials there)."""
-    return re.sub(r"(https?://[^\s?'\"]+)\?[^\s'\")]*", r"\1?<redacted>", str(text))
+    """Drop query strings from URLs and bare request paths in messages.
+
+    Signed URLs carry credentials in their query (X-Amz-Credential, X-Amz-Security-Token,
+    Signature, ...). urllib3 prints them as bare paths ("url: /file.tif?X-Amz-..."), so any
+    ``?key=value...`` run is removed, not only full URLs.
+    """
+    return re.sub(r"\?[^\s'\")?]*=[^\s'\")]*", "?<redacted>", str(text))
 
 
 def _bbox_matches(stored: Any, bbox: Sequence[float]) -> bool:
@@ -253,14 +273,25 @@ def get_with_retries(
     raise IngestError(f"{what} failed after {retries} attempts: {_redact(last)}")
 
 
+_DISK_ERRNOS = {errno.ENOSPC, errno.EROFS, errno.EACCES, getattr(errno, "EDQUOT", errno.ENOSPC)}
+
+
 def with_retries(fn: Callable[[], Any], what: str, retries: int = RETRIES) -> Any:
-    """Call fn, retrying network-type errors. FatalError (auth, missing layer) stops at once."""
+    """Call fn, retrying network-type errors only.
+
+    FatalError (auth, missing layer, geometry, local disk) and NotRetryable (e.g. HTTP 404)
+    are raised at once: repeating them would only re-download the same data.
+    """
     last: Exception | None = None
     for attempt in range(retries):
         try:
             return fn()
-        except FatalError:
+        except (FatalError, NotRetryable):
             raise
+        except OSError as e:
+            if e.errno in _DISK_ERRNOS and not isinstance(e, requests.RequestException):
+                raise LocalDiskError(f"Local disk error while writing {what}: {e}") from e
+            last = e
         except Exception as e:  # network hiccups, truncated transfers, transient 5xx
             last = e
         if attempt + 1 < retries:
@@ -579,8 +610,8 @@ def resolve_url(
             raise EarthdataAuthError(f"HTTP {resp.status_code} from {host}. {_AUTH_HELP}")
         if resp.status_code == 429 or resp.status_code >= 500:
             raise IngestError(f"HTTP {resp.status_code} from {host} (retryable)")
-        raise IngestError(f"Unexpected HTTP {resp.status_code} from {host}")
-    raise IngestError(f"More than {max_hops} redirects resolving {_redact(url)}")
+        raise NotRetryable(f"HTTP {resp.status_code} from {host}")
+    raise NotRetryable(f"More than {max_hops} redirects resolving {_redact(url)}")
 
 
 # --------------------------------------------------------------------------------------
@@ -632,7 +663,7 @@ def index_window(
     cols = _axis_window(x, xmin, xmax, pad)
     rows = _axis_window(y, ymin, ymax, pad)
     if cols is None or rows is None:
-        raise IngestError(
+        raise GeometryError(
             f"Region envelope {tuple(round(v) for v in envelope)} does not overlap the product grid "
             f"x=[{float(np.min(x)):.0f}, {float(np.max(x)):.0f}] "
             f"y=[{float(np.min(y)):.0f}, {float(np.max(y)):.0f}]"
@@ -681,14 +712,14 @@ def _update_georef(ds, rows: slice, cols: slice) -> None:
         numeric = isinstance(raw, np.ndarray) and raw.dtype.kind in "fi"
         vals = [float(v) for v in (np.ravel(raw) if numeric else _as_text(raw).split())]
         if len(vals) != 6:
-            raise IngestError(f"Unexpected GeoTransform {raw!r}")
+            raise GeometryError(f"Unexpected GeoTransform {raw!r}")
         x0, dx, rx, y0, ry, dy = vals
         new = [x0 + cols.start * dx + rows.start * rx, dx, rx, y0 + cols.start * ry + rows.start * dy, ry, dy]
         if "x" in ds.coords and "y" in ds.coords and ds.sizes["x"] and ds.sizes["y"]:
             cx = new[0] + 0.5 * dx + 0.5 * rx
             cy = new[3] + 0.5 * ry + 0.5 * dy
             if abs(cx - float(ds["x"].values[0])) > abs(dx) / 2 or abs(cy - float(ds["y"].values[0])) > abs(dy) / 2:
-                raise IngestError(
+                raise GeometryError(
                     "GeoTransform and x/y coordinates disagree by more than half a pixel in the "
                     "source product; refusing to write an inconsistent subset"
                 )
@@ -716,7 +747,7 @@ def _subset_group(ds, envelope, fallback: tuple[slice, slice] | None, full_shape
     elif fallback is not None and (ds.sizes["y"], ds.sizes["x"]) == full_shape:
         rows, cols = fallback
     else:
-        raise IngestError("Group has y/x dimensions but no coordinates to subset by")
+        raise GeometryError("Group has y/x dimensions but no coordinates to subset by")
     sub = ds.isel(y=rows, x=cols)
     _update_georef(sub, rows, cols)
     return sub
@@ -727,7 +758,9 @@ def _encoding(ds) -> dict[str, dict]:
     for name, var in ds.data_vars.items():
         if var.ndim >= 2 and var.dtype.kind in "fiub":
             chunks = tuple([1] * (var.ndim - 2) + [min(CHUNK, s) for s in var.shape[-2:]])
-            enc[name] = {"zlib": True, "complevel": 4, "shuffle": True, "chunksizes": chunks}
+            # fletcher32: HDF5 checksums every chunk, so a corrupted chunk fails loudly on read
+            # (here and in every later stage) instead of returning wrong numbers.
+            enc[name] = {"zlib": True, "complevel": 4, "shuffle": True, "chunksizes": chunks, "fletcher32": True}
     return enc
 
 
@@ -823,12 +856,16 @@ def open_remote(resolved: ResolvedUrl, block_size: int = 4 * MIB):
     """Binary file object over HTTPS that fetches only the byte ranges h5py asks for.
 
     aiohttp's trust_env is off so it never reads ~/.netrc; the proxy is passed explicitly.
+    Auth headers go on each request (fsspec ``headers=``), never as aiohttp session defaults:
+    with an explicit proxy, aiohttp copies session-default headers into the proxy CONNECT
+    request, which would send the token to the proxy as Proxy-Authorization.
     """
     import fsspec
 
     fs = fsspec.filesystem(
         "https",
-        client_kwargs={"headers": resolved.headers, "trust_env": False},
+        headers=dict(resolved.headers),
+        client_kwargs={"trust_env": False},
         proxy=_proxy_for(resolved.url),
         skip_instance_cache=True,
     )
@@ -840,6 +877,8 @@ def _download(resolved: ResolvedUrl, dst: Path, session: requests.Session) -> in
     n = 0
     try:
         with session.get(resolved.url, headers=resolved.headers, stream=True, timeout=300) as r:
+            if 400 <= r.status_code < 500 and r.status_code != 429:
+                raise NotRetryable(f"HTTP {r.status_code} downloading {_redact(resolved.url)}")
             r.raise_for_status()
             expected = r.headers.get("Content-Length")
             with open(tmp, "wb") as f:
@@ -899,7 +938,7 @@ def fetch_subset(
         return FetchResult(dst_p.name, True, time.monotonic() - t0, nbytes[0])
     except FatalError as e:
         return FetchResult(dst_p.name, False, time.monotonic() - t0, None, _redact(e), fatal=True)
-    except IngestError as e:
+    except (NotRetryable, IngestError) as e:
         return FetchResult(dst_p.name, False, time.monotonic() - t0, None, _redact(e))
 
 
@@ -923,7 +962,7 @@ def crop_static(src: Path, dst: Path, bbox: Sequence[float]) -> tuple[int, int]:
             c1 = min(int(np.ceil(win.col_off + win.width)) + 1, ds.width)
             r1 = min(int(np.ceil(win.row_off + win.height)) + 1, ds.height)
             if c1 <= c0 or r1 <= r0:
-                raise IngestError(f"{src.name}: bbox does not overlap the STATIC raster")
+                raise GeometryError(f"{src.name}: bbox does not overlap the STATIC raster")
             window = Window(c0, r0, c1 - c0, r1 - r0)
             data = ds.read(window=window)
             profile = ds.profile.copy()
@@ -1087,35 +1126,61 @@ def summarize_frame(
     bbox: Sequence[float],
     frame_id: int,
     direction: str,
-    n_expected: int,
+    listed: Sequence[str],
+    repair: bool = True,
 ) -> FrameSummary:
-    """Epochs, dates and % valid pixels for the subsets on disk (computed inside the bbox)."""
+    """What is usable on disk for one frame: epochs, dates and % valid pixels inside the bbox.
+
+    Only files CMR currently lists count (`listed`, the OPERA file names). On disk:
+    - files cut for another bbox stop the run (never mixed into a summary or the manifest);
+    - files that cannot be read (metadata or data) are removed when `repair`, counted as
+      missing, and re-fetched by the next run;
+    - superseded productions (not in `listed`) are ignored and reported.
+    """
     import shapely
     import xarray as xr
     from shapely.geometry import box as shp_box
 
-    files = sorted(out_dir.glob("OPERA_L3_DISP-S1_*.nc"))
-    infos = [parse_disp_name(p.name) for p in files]
-    secs = sorted({i["secondary_time"] for i in infos})
-    refs = {i["reference_time"] for i in infos}
-    gap_days = gap_start = gap_end = None
-    if len(secs) > 1:
-        diffs = np.diff(np.array([s.timestamp() for s in secs])) / 86400.0
-        k = int(np.argmax(diffs))
-        gap_days, gap_start, gap_end = (
-            round(float(diffs[k]), 1), secs[k].date().isoformat(), secs[k + 1].date().isoformat()
+    listed_set = set(listed)
+    on_disk = sorted(out_dir.glob("OPERA_L3_DISP-S1_*.nc"))
+    superseded = [p for p in on_disk if p.name not in listed_set]
+    stale: list[tuple[str, str]] = []
+    broken: list[tuple[Path, str]] = []
+    candidates: list[Path] = []
+    for p in on_disk:
+        if p.name not in listed_set:
+            continue
+        why = check_subset(p, bbox)
+        if why is None:
+            candidates.append(p)
+        elif why.startswith("stale"):
+            stale.append((p.name, why))
+        else:
+            broken.append((p, why))
+    if stale:
+        raise IngestError(
+            f"{len(stale)} subsets in {out_dir} were cut for a different bbox (e.g. {stale[0][0]}: "
+            f"{stale[0][1]}); configured bbox is {list(bbox)}. Move or delete {out_dir} and rerun."
         )
 
     crs_str = shape = pixel = None
     n_in = coverage = None
     grid_key = inside = None
+    good: list[Path] = []
     per_epoch: list[float] = []
     valid_total = denom = 0
-    for p in files:
+    for p in candidates:
         try:
             with xr.open_dataset(p, engine="h5netcdf") as ds:
                 x, y = ds["x"].values, ds["y"].values
                 key = (float(x[0]), float(x[-1]), x.size, float(y[0]), float(y[-1]), y.size)
+                if grid_key is not None and key != grid_key:
+                    raise IngestError(
+                        f"{p.name} is on a different grid from the other subsets in {out_dir}; "
+                        "move or delete the folder and rerun"
+                    )
+                disp = ds["displacement"].values
+                mask = ds["recommended_mask"].values
                 if grid_key is None:
                     grid_key = key
                     crs = dataset_crs(ds)
@@ -1133,21 +1198,36 @@ def summarize_frame(
                     crs_str = f"EPSG:{epsg}" if epsg else crs.to_string()
                     shape = [int(y.size), int(x.size)]
                     pixel = [dx, dy]
-                elif key != grid_key:
-                    raise IngestError(
-                        f"{p.name} is on a different grid from the other subsets in {out_dir}; "
-                        "move or delete the folder and rerun"
-                    )
-                disp = ds["displacement"].values
-                mask = ds["recommended_mask"].values
         except IngestError:
             raise
-        except Exception as e:
-            raise IngestError(f"Cannot read {p} ({type(e).__name__}: {e}); delete it and rerun") from e
+        except Exception as e:  # corrupt chunk (checksum), truncated file, ...
+            broken.append((p, f"unreadable data ({type(e).__name__})"))
+            continue
         valid = np.isfinite(disp) & (mask == 1) & inside
         valid_total += int(valid.sum())
         denom += n_in
         per_epoch.append(100.0 * valid.sum() / n_in if n_in else 0.0)
+        good.append(p)
+
+    for p, why in broken:
+        logger.warning("F%05d: %s is %s; %s", frame_id, p.name, why,
+                       "removed, the next run re-fetches it" if repair else "it will be re-fetched")
+        if repair:
+            p.unlink(missing_ok=True)
+    if superseded:
+        logger.warning("F%05d: ignoring %d superseded productions no longer listed by CMR (e.g. %s)",
+                       frame_id, len(superseded), superseded[0].name)
+
+    infos = [parse_disp_name(p.name) for p in good]
+    secs = sorted({i["secondary_time"] for i in infos})
+    refs = {i["reference_time"] for i in infos}
+    gap_days = gap_start = gap_end = None
+    if len(secs) > 1:
+        diffs = np.diff(np.array([s.timestamp() for s in secs])) / 86400.0
+        k = int(np.argmax(diffs))
+        gap_days, gap_start, gap_end = (
+            round(float(diffs[k]), 1), secs[k].date().isoformat(), secs[k + 1].date().isoformat()
+        )
 
     sdir = out_dir / "static"
     static_layers = [
@@ -1159,9 +1239,11 @@ def summarize_frame(
     return FrameSummary(
         frame_id=frame_id,
         direction=direction,
-        n_expected=n_expected,
-        n_on_disk=len(files),
-        n_missing=max(n_expected - len(files), 0),
+        n_expected=len(listed_set),
+        n_on_disk=len(good),
+        n_missing=len(listed_set) - len(good),
+        n_superseded=len(superseded),
+        n_removed_broken=len(broken) if repair else 0,
         n_epochs=len(secs),
         first_date=secs[0].date().isoformat() if secs else None,
         last_date=secs[-1].date().isoformat() if secs else None,
@@ -1181,7 +1263,13 @@ def summarize_frame(
         valid_rule=VALID_RULE,
         static_layers=static_layers,
         bytes_on_disk=size,
+        files=[p.name for p in good],
     )
+
+
+def frame_complete(f: FrameSummary) -> bool:
+    """Every CMR-listed product and every required STATIC layer is on disk and usable."""
+    return f.n_on_disk > 0 and f.n_missing == 0 and set(f.static_layers) == set(REQUIRED_STATIC_LAYERS)
 
 
 def _na(v: Any) -> str:
@@ -1193,14 +1281,20 @@ def format_summary(region: Region, frames: Sequence[FrameSummary]) -> str:
     w, s, e, n = region.bbox
     lines = [
         f"Region {region.name}: bbox W {w} S {s} E {e} N {n} (EPSG:4326, from config)",
-        "Tags: MEASURED = read from the satellite products; DERIVED = computed from them.",
+        "Tags: MEASURED = read from the satellite products or NASA's catalogue; DERIVED = computed from them.",
     ]
     for f in frames:
+        extra = []
+        if f.n_superseded:
+            extra.append(f"{f.n_superseded} superseded productions ignored")
+        if f.n_removed_broken:
+            extra.append(f"{f.n_removed_broken} unreadable files removed, rerun to re-fetch")
         lines += [
             "",
-            f"Frame F{f.frame_id:05d} ({f.direction})",
-            f"  epochs on disk        [MEASURED]: {f.n_epochs} (files {f.n_on_disk} of {f.n_expected} "
-            f"listed by CMR, {f.n_missing} missing)",
+            f"Frame F{f.frame_id:05d} ({f.direction}): {'complete' if frame_complete(f) else 'INCOMPLETE'}",
+            f"  epochs on disk        [MEASURED]: {f.n_epochs}",
+            f"  products listed (CMR) [MEASURED]: {f.n_expected}",
+            f"  missing from disk     [DERIVED] : {f.n_missing}" + (f" ({'; '.join(extra)})" if extra else ""),
             f"  date range            [MEASURED]: {_na(f.first_date)} to {_na(f.last_date)}",
             f"  reference dates       [MEASURED]: {f.n_reference_dates}",
             f"  largest gap           [DERIVED] : {_na(f.largest_gap_days)} days "
@@ -1219,17 +1313,18 @@ def format_summary(region: Region, frames: Sequence[FrameSummary]) -> str:
 
 def write_report(path: Path, region: Region, frames: Sequence[FrameSummary], run: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    complete = all(f.n_missing == 0 and f.n_on_disk > 0 for f in frames)
+    complete = all(frame_complete(f) for f in frames)
     body = [
         f"# M0 ingest report: {region.name}",
         "",
         f"Generated {run['finished_utc']} by `{run.get('command', 'python -m pipeline.ingest')}`.",
         "",
         f"- Region: {region.description}",
-        f"- Status: {'all configured frames complete' if complete else 'INCOMPLETE: see missing counts below'}.",
-        f"- This run: {run['fetched']} subsets downloaded, {run['skipped']} already on disk, "
-        f"{run['failed']} failed; method `{run['method']}`; {run['seconds']:.0f} s; "
-        f"frames processed: {', '.join(str(f) for f in run.get('frames_processed', [])) or 'none'}.",
+        f"- Status: {'all configured frames complete' if complete else 'INCOMPLETE: see the frames marked INCOMPLETE below'}.",
+        f"- This run [MEASURED, counted by the pipeline]: {run['fetched']} subsets downloaded, "
+        f"{run['skipped']} already on disk, {run['failed']} failed; method `{run['method']}`; "
+        f"{run['seconds']:.0f} s; frames processed: "
+        f"{', '.join(str(f) for f in run.get('frames_processed', [])) or 'none'}.",
     ]
     if run.get("median_mib_per_file") is not None:
         body.append(
@@ -1245,11 +1340,14 @@ def write_report(path: Path, region: Region, frames: Sequence[FrameSummary], run
 # --------------------------------------------------------------------------------------
 
 
-def _worker_init() -> None:
-    """Workers ignore Ctrl-C; the parent decides when to stop and terminates them."""
-    import signal
+def _exit_on_signal(signum, frame):
+    raise SystemExit(128 + signum)  # lets write_subset's cleanup run before the worker exits
 
+
+def _worker_init() -> None:
+    """Workers ignore Ctrl-C (the parent decides when to stop) and clean up on SIGTERM."""
     signal.signal(signal.SIGINT, signal.SIG_IGN)
+    signal.signal(signal.SIGTERM, _exit_on_signal)
 
 
 def _terminate_pool(pool: cf.ProcessPoolExecutor) -> None:
@@ -1259,6 +1357,16 @@ def _terminate_pool(pool: cf.ProcessPoolExecutor) -> None:
         p.terminate()
     for p in procs:
         p.join(timeout=10)
+        if p.is_alive():
+            p.kill()
+            p.join(timeout=5)
+
+
+def _remove_temp_files(dsts: Iterable[str]) -> None:
+    """Delete temp files of jobs that were stopped mid-write (the final names never appear)."""
+    for dst in dsts:
+        for suffix in (PARTIAL_SUFFIX, ".download", ".download" + PARTIAL_SUFFIX):
+            Path(dst + suffix).unlink(missing_ok=True)
 
 
 def _handle_result(res: FetchResult, results: list[FetchResult]) -> None:
@@ -1297,25 +1405,33 @@ def run_frame_downloads(
         max_workers=workers, mp_context=multiprocessing.get_context("spawn"), initializer=_worker_init
     )
     queue = iter(jobs)
-    inflight: set[cf.Future] = set()
+    inflight: dict[cf.Future, str] = {}
 
     def submit_next() -> None:
         job = next(queue, None)
         if job is not None:
-            inflight.add(pool.submit(fetch_subset, job[0], job[1], tuple(bbox), method))
+            inflight[pool.submit(fetch_subset, job[0], job[1], tuple(bbox), method)] = job[1]
 
     try:
         for _ in range(workers):
             submit_next()
         while inflight:
-            done, _ = cf.wait(inflight, return_when=cf.FIRST_COMPLETED)
+            done, _ = cf.wait(list(inflight), return_when=cf.FIRST_COMPLETED)
             for fut in done:
-                inflight.discard(fut)
-                _handle_result(fut.result(), results)
+                dst = inflight.pop(fut)
+                try:
+                    res = fut.result()
+                except cf.process.BrokenProcessPool as e:
+                    raise IngestError(
+                        f"A download worker died unexpectedly (out of memory?) while writing "
+                        f"{Path(dst).name}. Finished files are kept; rerun to resume."
+                    ) from e
+                _handle_result(res, results)
                 progress(len(results))
                 submit_next()
     except BaseException:
         _terminate_pool(pool)
+        _remove_temp_files(dst for _, dst in jobs)
         raise
     pool.shutdown(wait=True)
     return results
@@ -1347,11 +1463,11 @@ def run_ingest(
     transfer_mib: list[float] = []
     seconds: list[float] = []
     failures: list[FetchResult] = []
-    expected: dict[int, int] = {}
+    listed: dict[int, list[str]] = {}
 
     for spec in region.frames:
         granules = search_disp(spec.frame_id, region.product_version, session)
-        expected[spec.frame_id] = len(granules)
+        listed[spec.frame_id] = [g.filename for g in granules]
         if spec not in selected:
             continue
         out = frame_dir(data_dir, region.name, spec.frame_id)
@@ -1406,7 +1522,7 @@ def run_ingest(
     summaries = [
         summarize_frame(
             frame_dir(data_dir, region.name, s.frame_id), region.bbox, s.frame_id, s.direction,
-            expected[s.frame_id],
+            listed[s.frame_id],
         )
         for s in region.frames
     ]
@@ -1426,8 +1542,15 @@ def run_ingest(
         write_report(report_path, region, summaries, run)
     if failures:
         names = ", ".join(f.filename for f in failures[:5])
-        raise IngestError(f"{len(failures)} products failed after retries (e.g. {names}); rerun to retry")
+        raise IngestError(
+            f"{len(failures)} products could not be fetched (e.g. {names}: {failures[0].error}); "
+            "rerun to retry"
+        )
     return summaries, run
+
+
+def _interrupt_on_sigterm(signum, frame):
+    raise KeyboardInterrupt  # same clean stop as Ctrl-C: workers terminated, temp files removed
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -1457,6 +1580,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     for noisy in ("urllib3", "fsspec", "aiohttp", "asyncio", "h5py", "rasterio"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
 
+    previous_term = None
+    if threading.current_thread() is threading.main_thread():
+        previous_term = signal.signal(signal.SIGTERM, _interrupt_on_sigterm)
     try:
         region = load_region(args.region, args.config)
         if args.find_frames:
@@ -1491,6 +1617,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     except (requests.RequestException, OSError) as e:
         logger.error("STOPPED: %s: %s", type(e).__name__, _redact(e))
         return 2
+    finally:
+        if previous_term is not None:
+            signal.signal(signal.SIGTERM, previous_term)
 
 
 if __name__ == "__main__":

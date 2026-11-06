@@ -571,9 +571,12 @@ def test_summarize_frame_counts_epochs_dates_and_valid_pixels(tmp_path, grid):
         src = tmp_path / disp_name(38238, ref, sec)
         write_disp_product(src, x, y, seed=i)
         ingest.write_subset(src, out / src.name, HOUSTON_BBOX)
-    s = ingest.summarize_frame(out, HOUSTON_BBOX, 38238, "descending", n_expected=4)
+    listed = [p.name for p in out.glob("*.nc")] + [disp_name(38238, "20161028T122243Z", "20170327T122243Z")]
+    s = ingest.summarize_frame(out, HOUSTON_BBOX, 38238, "descending", listed)
     assert (s.frame_id, s.direction) == (38238, "descending")
-    assert (s.n_expected, s.n_epochs, s.n_on_disk, s.n_missing) == (4, 3, 3, 1)
+    assert (s.n_expected, s.n_epochs, s.n_on_disk, s.n_missing, s.n_superseded, s.n_removed_broken) == (4, 3, 3, 1, 0, 0)
+    assert sorted(s.files) == sorted(p.name for p in out.glob("*.nc"))
+    assert not ingest.frame_complete(s)  # one product and all STATIC layers missing
     assert s.n_reference_dates == 2
     assert (s.first_date, s.last_date) == ("2016-10-16", "2017-03-15")
     assert (s.largest_gap_days, s.largest_gap_start, s.largest_gap_end) == (138.0, "2016-10-28", "2017-03-15")
@@ -605,13 +608,31 @@ def test_summarize_frame_counts_epochs_dates_and_valid_pixels(tmp_path, grid):
     assert s.pct_valid_epoch_max == round(max(per_epoch), 2)
 
 
-def test_summarize_frame_names_an_unreadable_file(tmp_path, grid):
+def test_summarize_frame_removes_unreadable_files_and_counts_them_missing(tmp_path, grid):
     out = tmp_path / "F38238"
     out.mkdir()
     bad = out / disp_name(38238, "20160712T122240Z", "20161016T122243Z")
     bad.write_bytes(b"not hdf5")
-    with pytest.raises(IngestError, match="Cannot read .*delete it and rerun"):
-        ingest.summarize_frame(out, HOUSTON_BBOX, 38238, "descending", 1)
+    s = ingest.summarize_frame(out, HOUSTON_BBOX, 38238, "descending", [bad.name])
+    assert (s.n_on_disk, s.n_missing, s.n_removed_broken) == (0, 1, 1)
+    assert not bad.exists()
+
+
+def test_summary_ignores_superseded_productions(tmp_path, grid):
+    """A reprocessed granule gets a new name; the old file must not hide a missing epoch."""
+    x, y = grid
+    out = tmp_path / "F38238"
+    out.mkdir()
+    old = [disp_name(38238, "20160712T122240Z", sec, prod="20250101T000000Z") for sec in SECS]
+    for i, name in enumerate(old):
+        write_disp_product(tmp_path / name, x, y, seed=i)
+        ingest.write_subset(tmp_path / name, out / name, HOUSTON_BBOX)
+    new = [disp_name(38238, "20160712T122240Z", sec, prod="20251101T000000Z") for sec in SECS]
+    write_disp_product(tmp_path / new[0], x, y, seed=9)
+    ingest.write_subset(tmp_path / new[0], out / new[0], HOUSTON_BBOX)
+    s = ingest.summarize_frame(out, HOUSTON_BBOX, 38238, "descending", new)
+    assert (s.n_expected, s.n_on_disk, s.n_missing, s.n_superseded, s.n_epochs) == (3, 1, 2, 3, 1)
+    assert s.files == [new[0]]
 
 
 # ---------------------------------------------------------------- end to end -------
@@ -728,14 +749,17 @@ def test_cli_prints_acceptance_summary_and_rerun_skips(tmp_path, monkeypatch, gr
     assert ingest.main(args) == 0
     out = capsys.readouterr().out
     manifest = json.loads(manifest_path(tmp_path / "data", "testcity").read_text())["frames"][0]
-    assert "epochs on disk        [MEASURED]: 3 (files 3 of 3 listed by CMR, 0 missing)" in out
+    assert "Frame F38238 (descending): complete" in out
+    assert "epochs on disk        [MEASURED]: 3\n" in out
+    assert "products listed (CMR) [MEASURED]: 3\n" in out
+    assert "missing from disk     [DERIVED] : 0\n" in out
     assert "date range            [MEASURED]: 2016-10-16 to 2016-11-09" in out
     assert f"% valid pixels        [DERIVED] : {manifest['pct_valid']}% overall" in out
     report = (tmp_path / "reports" / "m0_ingest_testcity.md").read_text()
     assert "--region testcity" in report and "epochs on disk" in report
 
     assert ingest.main(args) == 0  # rerun
-    assert "epochs on disk        [MEASURED]: 3" in capsys.readouterr().out
+    assert "epochs on disk        [MEASURED]: 3\n" in capsys.readouterr().out
 
 
 def test_cli_reports_failures_with_exit_code(tmp_path, monkeypatch, grid, capsys, caplog):
@@ -790,7 +814,7 @@ def test_http_multiprocess_pool_and_failure_exit(tmp_path, monkeypatch, grid, ra
                              "secondary_time": datetime(2016, 11, 21, tzinfo=UTC)})
     _patch_search(monkeypatch, {38238: (gs + [missing], static_urls)})
     data = tmp_path / "data"
-    with pytest.raises(IngestError, match="1 products failed after retries"):
+    with pytest.raises(IngestError, match="1 products could not be fetched .*HTTP 404"):
         ingest.run_ingest(_region(), data_dir=data, workers=2, session=object())
     fdir = frame_dir(data, "testcity", 38238)
     assert sorted(p.name for p in fdir.glob("*.nc")) == sorted(g.filename for g in gs)
@@ -809,3 +833,171 @@ def test_http_pool_stops_on_fatal_error(tmp_path, monkeypatch, grid, range_serve
     with pytest.raises(IngestError, match="recommended_mask"):
         ingest.run_ingest(_region(), data_dir=tmp_path / "data", workers=2, session=object())
     assert not list(frame_dir(tmp_path / "data", "testcity", 38238).glob("*.partial"))
+
+
+# ---------------------------------------------------------------- second review ----
+
+
+def test_final_name_only_appears_at_commit(tmp_path, grid, monkeypatch):
+    """The subset is written under *.partial; the final name exists only after the rename."""
+    x, y = grid
+    src = tmp_path / disp_name(38238, "20160712T122240Z", "20161016T122243Z")
+    write_disp_product(src, x, y)
+    dst = tmp_path / "out.nc"
+    real_commit, seen = ingest._commit, []
+
+    def checked_commit(tmp, final):
+        seen.append((Path(tmp).exists(), Path(final).exists(), Path(tmp).name))
+        real_commit(tmp, final)
+
+    monkeypatch.setattr(ingest, "_commit", checked_commit)
+    ingest.write_subset(src, dst, HOUSTON_BBOX)
+    assert seen == [(True, False, "out.nc" + PARTIAL_SUFFIX)] and dst.exists()
+
+
+def test_subset_without_bbox_record_is_refetched(tmp_path, grid):
+    x, y = grid
+    src = tmp_path / disp_name(38238, "20160712T122240Z", "20161016T122243Z")
+    write_disp_product(src, x, y)
+    out = tmp_path / "F"
+    out.mkdir()
+    ingest.write_subset(src, out / src.name, HOUSTON_BBOX)
+    with h5py.File(out / src.name, "a") as f:
+        del f.attrs[ingest.BBOX_ATTR]
+    assert ingest.check_subset(out / src.name, HOUSTON_BBOX) == "no bbox record"
+    to_fetch, existing = ingest.plan_downloads(_granules_for([src]), out, HOUSTON_BBOX)
+    assert [g.filename for g in to_fetch] == [src.name] and existing == []
+
+
+def test_inconsistent_georeferencing_is_fatal_and_not_retried(tmp_path, grid, monkeypatch):
+    x, y = grid
+    src = tmp_path / disp_name(38238, "20160712T122240Z", "20161016T122243Z")
+    write_disp_product(src, x, y)
+    with h5py.File(src, "a") as f:
+        gt = f["spatial_ref"].attrs["GeoTransform"]
+        gt = gt.decode() if isinstance(gt, bytes) else str(gt)
+        vals = gt.split()
+        vals[0] = str(float(vals[0]) + 10 * 600.0)  # shifted by 10 pixels
+        f["spatial_ref"].attrs["GeoTransform"] = " ".join(vals)
+    calls = []
+    real = ingest.write_subset
+    monkeypatch.setattr(ingest, "write_subset", lambda *a, **k: (calls.append(1), real(*a, **k))[1])
+    res = ingest.fetch_subset(str(src), str(tmp_path / "o.nc"), HOUSTON_BBOX)
+    assert res.fatal and "disagree" in res.error and len(calls) == 1
+
+
+def test_http_404_is_not_retried_and_not_fatal(tmp_path, range_server):
+    base, srv = range_server
+    res = ingest.fetch_subset(f"{base}/missing.nc", str(tmp_path / "o.nc"), HOUSTON_BBOX)
+    assert not res.ok and not res.fatal and "404" in res.error
+    assert len(srv.requests) == 1
+
+
+def test_redact_handles_bare_paths_from_urllib3():
+    msg = ingest._redact("Max retries exceeded with url: /OPERA_dem.tif?X-Amz-Credential=ASIAX&X-Amz-Security-Token=SECRET (Caused by ...)")
+    assert "SECRET" not in msg and "ASIAX" not in msg and "/OPERA_dem.tif?<redacted>" in msg
+    assert ingest._redact("library did not load (offline?).") == "library did not load (offline?)."
+
+
+def test_proxy_never_receives_the_token(tmp_path, grid, range_server, monkeypatch):
+    """With an explicit proxy, aiohttp must not turn the auth header into Proxy-Authorization."""
+    base, proxy = range_server  # acts as a plain-HTTP forward proxy: serves files by path
+    x, y = grid
+    src = proxy.root / disp_name(38238, "20160712T122240Z", "20161016T122243Z")
+    write_disp_product(src, x, y)
+    monkeypatch.setattr(ingest, "_proxy_for", lambda url: base)
+    target = f"http://origin.invalid/{src.name}"  # only reachable through the proxy
+    with ingest.open_remote(ingest.ResolvedUrl(target, {"Authorization": "Bearer TOKEN"})) as f:
+        ingest.write_subset(f, tmp_path / "o.nc", HOUSTON_BBOX)
+    assert proxy.requests and all(r["proxy_auth"] is None for r in proxy.requests)
+    assert all(r["auth"] == "Bearer TOKEN" for r in proxy.requests)  # sent per request, to the target
+
+
+def test_find_frames_cli_prints_provenance_tags(monkeypatch, capsys):
+    rows = [{"frame_id": 38238, "direction": "descending", "path": 143, "n_granules": 449,
+             "first": "2016-07-24", "last": "2026-03-22", "coverage": 1.0}]
+    monkeypatch.setattr(ingest, "find_frames", lambda bbox, session: rows)
+    assert ingest.main(["--region", "houston", "--find-frames"]) == 0
+    out = capsys.readouterr().out
+    assert "MEASURED" in out and "DERIVED" in out and "38238" in out and "100.0%" in out
+
+
+def test_unselected_frame_with_stale_subsets_stops_the_run(tmp_path, monkeypatch, grid):
+    a, b = tmp_path / "a", tmp_path / "b"
+    a.mkdir()
+    b.mkdir()
+    _patch_search(monkeypatch, {38238: _make_sources(a, grid), 8882: _make_sources(b, grid, frame_id=8882)})
+    data = tmp_path / "data"
+    small = (-95.82, 29.76, -95.67, 29.90)
+    ingest.run_ingest(_region(bbox=small, frames=(38238, 8882)), data_dir=data, workers=1, session=object())
+    import shutil
+    shutil.rmtree(frame_dir(data, "testcity", 8882))  # as the stale message instructs, for one frame
+    with pytest.raises(IngestError, match="different bbox"):
+        ingest.run_ingest(_region(frames=(38238, 8882)), data_dir=data, frames=[8882], workers=1, session=object())
+
+
+def test_unselected_frame_with_broken_file_is_repaired_not_fatal(tmp_path, monkeypatch, grid):
+    a, b = tmp_path / "a", tmp_path / "b"
+    a.mkdir()
+    b.mkdir()
+    gs_a, st_a = _make_sources(a, grid)
+    _patch_search(monkeypatch, {38238: (gs_a, st_a), 8882: _make_sources(b, grid, frame_id=8882)})
+    data, region = tmp_path / "data", _region(frames=(38238, 8882))
+    ingest.run_ingest(region, data_dir=data, workers=1, session=object())
+    broken = frame_dir(data, "testcity", 38238) / gs_a[0].filename
+    broken.write_bytes(b"\x89HDF truncated")
+    summaries, _ = ingest.run_ingest(region, data_dir=data, frames=[8882], workers=1, session=object())
+    f38 = summaries[0]
+    assert (f38.n_on_disk, f38.n_missing, f38.n_removed_broken) == (2, 1, 1) and not ingest.frame_complete(f38)
+    _, run = ingest.run_ingest(region, data_dir=data, frames=[38238], workers=1, session=object())
+    assert run["fetched"] == 1  # the next run re-fetches it
+
+
+def _corrupt_chunk(path: Path, var: str) -> None:
+    with h5py.File(path, "r") as f:
+        off = f[var].id.get_chunk_info(0).byte_offset
+    data = bytearray(path.read_bytes())
+    data[off + 40 : off + 72] = b"\xff" * 32
+    path.write_bytes(bytes(data))
+
+
+def test_corrupt_chunk_is_never_read_as_numbers(tmp_path, monkeypatch, grid):
+    src = tmp_path / "remote"
+    src.mkdir()
+    gs, st = _make_sources(src, grid)
+    _patch_search(monkeypatch, {38238: (gs, st)})
+    data, region = tmp_path / "data", _region()
+    ingest.run_ingest(region, data_dir=data, workers=1, session=object())
+    fdir = frame_dir(data, "testcity", 38238)
+    # a corrupted layer the summary does not read still fails loudly for any later reader
+    _corrupt_chunk(fdir / gs[1].filename, "temporal_coherence")
+    with xr.open_dataset(fdir / gs[1].filename, engine="h5netcdf") as ds, pytest.raises(OSError):
+        ds["temporal_coherence"].values
+    # a corrupted layer the summary reads is removed, reported, and re-fetched by the next run
+    _corrupt_chunk(fdir / gs[0].filename, "displacement")
+    summaries, _ = ingest.run_ingest(region, data_dir=data, workers=1, session=object())
+    assert summaries[0].n_removed_broken == 1 and summaries[0].n_missing == 1
+    summaries, run = ingest.run_ingest(region, data_dir=data, workers=1, session=object())
+    assert run["fetched"] == 1 and summaries[0].n_missing == 0
+
+
+def test_missing_static_layer_marks_frame_incomplete(tmp_path, monkeypatch, grid):
+    src = tmp_path / "remote"
+    src.mkdir()
+    gs, st = _make_sources(src, grid)
+    st = {k: v for k, v in st.items() if k != "dem"}
+    _patch_search(monkeypatch, {38238: (gs, st)})
+    report = tmp_path / "r.md"
+    summaries, _ = ingest.run_ingest(_region(), data_dir=tmp_path / "d", workers=1, report_path=report, session=object())
+    assert summaries[0].n_missing == 0 and not ingest.frame_complete(summaries[0])
+    assert "INCOMPLETE" in report.read_text()
+
+
+def test_remove_temp_files_after_stopping_workers(tmp_path):
+    dst = tmp_path / "X.nc"
+    leftovers = [tmp_path / n for n in ("X.nc.partial", "X.nc.download", "X.nc.download.partial")]
+    for p in leftovers:
+        p.write_bytes(b"x")
+    (tmp_path / "Y.nc").write_bytes(b"done")
+    ingest._remove_temp_files([str(dst)])
+    assert not any(p.exists() for p in leftovers) and (tmp_path / "Y.nc").exists()

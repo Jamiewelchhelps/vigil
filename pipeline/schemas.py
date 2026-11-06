@@ -11,6 +11,11 @@ On disk, under ``<data_dir>/raw/<region>/``::
     F<frame:05d>/static/<OPERA STATIC granule>_<layer>.tif bbox crop of each STATIC layer
     manifest.json                                         IngestManifest (below)
 
+The stack stage reads the subsets named in ``manifest.json`` (``frames[].files``), not a glob of
+the folder: only those are current CMR products, readable, and cut for the configured bbox.
+Every data variable is written with HDF5 fletcher32 checksums, so a corrupted chunk raises on
+read instead of returning wrong values.
+
 Each ``.nc`` subset keeps the product's groups: root layers (``displacement``,
 ``short_wavelength_displacement``, ``temporal_coherence``, ``recommended_mask``, ...),
 ``/corrections``, ``/metadata`` and ``/identification``, cropped to the pixels that touch the
@@ -64,7 +69,9 @@ class FrameSummary:
     direction: str
     n_expected: int  # granules CMR lists for this frame
     n_on_disk: int  # complete subsets on disk
-    n_missing: int
+    n_missing: int  # listed by CMR but not usable on disk (DERIVED)
+    n_superseded: int  # older productions on disk that CMR no longer lists; ignored
+    n_removed_broken: int  # unreadable files removed by this run; re-fetched next run
     n_epochs: int  # distinct secondary (acquisition) dates on disk
     first_date: str | None  # ISO date of the first secondary acquisition
     last_date: str | None
@@ -84,6 +91,8 @@ class FrameSummary:
     valid_rule: str = ""  # how "valid" was decided, in words
     static_layers: list[str] = field(default_factory=list)
     bytes_on_disk: int = 0
+    files: list[str] = field(default_factory=list)  # the usable subsets, by OPERA name
+
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
