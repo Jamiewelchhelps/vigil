@@ -1,8 +1,15 @@
-"""Synthetic OPERA DISP-S1 / DISP-S1-STATIC files for tests. No network anywhere in tests/."""
+"""Synthetic OPERA DISP-S1 / DISP-S1-STATIC files for tests. No network anywhere in tests/.
+
+The only HTTP used is a local Range-capable server on 127.0.0.1 (see `range_server`).
+"""
 
 from __future__ import annotations
 
+import http.server
+import re
+import threading
 from pathlib import Path
+from urllib.parse import unquote, urlparse
 
 import h5py
 import numpy as np
@@ -33,6 +40,14 @@ def frame_grid(bbox=HOUSTON_BBOX, margin_m: float = 6000.0, dx: float = DX):
     return x, y
 
 
+def _spatial_ref(x: np.ndarray, y: np.ndarray) -> xr.DataArray:
+    """CF grid mapping like the DISP-S1 writer's: crs_wkt plus a GDAL GeoTransform string."""
+    crs = CRS.from_epsg(EPSG)
+    dx, dy = float(x[1] - x[0]), float(y[1] - y[0])
+    gt = f"{x[0] - dx / 2} {dx} 0.0 {y[0] - dy / 2} 0.0 {dy}"
+    return xr.DataArray(0, attrs={"crs_wkt": crs.to_wkt(), "spatial_ref": crs.to_wkt(), "GeoTransform": gt})
+
+
 def write_disp_product(
     path: Path,
     x: np.ndarray,
@@ -43,6 +58,7 @@ def write_disp_product(
     drop_corrections: tuple[str, ...] = (),
     bad_fraction: float = 0.2,
     nan_fraction: float = 0.05,
+    reference_rowcol: tuple[int, int] = (10, 12),
 ) -> dict[str, np.ndarray]:
     """Write a small product with the DISP-S1 v1.0 group/variable layout. Returns the arrays."""
     rng = np.random.default_rng(seed)
@@ -59,8 +75,6 @@ def write_disp_product(
         "estimated_phase_quality": rng.random(shape).astype("float32"),
         "water_mask": np.ones(shape, dtype="uint8"),
     }
-    crs = CRS.from_epsg(EPSG)
-    spatial_ref = xr.DataArray(0, attrs={"crs_wkt": crs.to_wkt(), "spatial_ref": crs.to_wkt()})
     root = xr.Dataset(
         {
             name: (("y", "x"), arr, {"grid_mapping": "spatial_ref", "units": "meters"})
@@ -69,7 +83,7 @@ def write_disp_product(
         },
         coords={"x": ("x", x, {"units": "meters"}), "y": ("y", y, {"units": "meters"})},
     )
-    root["spatial_ref"] = spatial_ref
+    root["spatial_ref"] = _spatial_ref(x, y)
     root.attrs["product_version"] = "1.0"
     enc = {n: {"_FillValue": np.nan} for n in root.data_vars if root[n].dtype.kind == "f"}
     enc.update({n: {"_FillValue": 255} for n in root.data_vars if root[n].dtype == np.uint8})
@@ -77,14 +91,16 @@ def write_disp_product(
 
     corr = xr.Dataset(
         {
-            name: (("y", "x"), rng.normal(0, 0.001, shape).astype("float32"))
+            name: (("y", "x"), rng.normal(0, 0.001, shape).astype("float32"), {"grid_mapping": "spatial_ref"})
             for name in ("ionospheric_delay", "solid_earth_tide")
             if name not in drop_corrections
         },
         coords={"x": ("x", x), "y": ("y", y)},
     )
+    corr["spatial_ref"] = _spatial_ref(x, y)
     corr["perpendicular_baseline"] = xr.DataArray(np.float32(42.0))
-    corr["reference_point"] = xr.DataArray(0, attrs={"rows": 10, "cols": 12})
+    r, c = reference_rowcol
+    corr["reference_point"] = xr.DataArray(0, attrs={"rows": [r], "cols": [c]})
     corr.to_netcdf(path, mode="a", engine="h5netcdf", group="corrections")
 
     with h5py.File(path, "a") as f:
@@ -119,3 +135,61 @@ def write_static_tif(path: Path, x: np.ndarray, y: np.ndarray, bands: int = 3, s
 @pytest.fixture
 def grid():
     return frame_grid()
+
+
+class _RangeHandler(http.server.BaseHTTPRequestHandler):
+    """Serves files from server.root with HEAD, GET and single byte-range support."""
+
+    def do_HEAD(self):
+        self._serve(head=True)
+
+    def do_GET(self):
+        self._serve(head=False)
+
+    def _serve(self, head: bool) -> None:
+        srv = self.server
+        srv.requests.append(
+            {"method": self.command, "path": self.path, "auth": self.headers.get("Authorization"),
+             "range": self.headers.get("Range")}
+        )
+        path = srv.root / unquote(urlparse(self.path).path.lstrip("/"))
+        if not path.is_file():
+            self.send_error(404)
+            return
+        data = path.read_bytes()
+        rng = self.headers.get("Range")
+        if rng:
+            m = re.match(r"bytes=(\d+)-(\d*)$", rng)
+            start = int(m[1])
+            end = min(int(m[2]) if m[2] else len(data) - 1, len(data) - 1)
+            body = data[start : end + 1]
+            self.send_response(206)
+            self.send_header("Content-Range", f"bytes {start}-{end}/{len(data)}")
+        else:
+            body = data
+            self.send_response(200)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Accept-Ranges", "bytes")
+        self.end_headers()
+        if not head:
+            self.wfile.write(body)
+
+    def log_message(self, *args):
+        pass
+
+
+@pytest.fixture
+def range_server(tmp_path):
+    """(base_url, server): a local HTTP server over tmp_path/'remote' that logs every request."""
+    root = tmp_path / "remote"
+    root.mkdir(exist_ok=True)
+    srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _RangeHandler)
+    srv.root = root
+    srv.requests = []
+    t = threading.Thread(target=srv.serve_forever, daemon=True)
+    t.start()
+    try:
+        yield f"http://127.0.0.1:{srv.server_address[1]}", srv
+    finally:
+        srv.shutdown()
+        srv.server_close()

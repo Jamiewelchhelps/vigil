@@ -16,6 +16,15 @@ Each ``.nc`` subset keeps the product's groups: root layers (``displacement``,
 ``/corrections``, ``/metadata`` and ``/identification``, cropped to the pixels that touch the
 region bbox (plus a 1-pixel margin) on the product's native UTM grid. Nothing is resampled.
 A file only appears under its final name once it is complete (written to ``*.partial`` first).
+
+Georeferencing in each subset describes the subset, not the full frame:
+- ``spatial_ref.GeoTransform`` (root and ``/corrections``) is shifted to the subset origin.
+- ``/corrections/reference_point`` attrs ``rows``/``cols`` index the subset grid (they can be
+  outside it: see ``vigil_reference_point_in_subset``); the frame indices are kept as
+  ``frame_rows``/``frame_cols``.
+- Root attrs ``vigil_subset_bbox_lonlat`` (the region bbox it was cut for),
+  ``vigil_subset_rows`` and ``vigil_subset_cols`` (the window in the full frame, [start, stop)).
+Each cropped STATIC GeoTIFF carries the tag ``VIGIL_SUBSET_BBOX_LONLAT``.
 """
 
 from __future__ import annotations
@@ -67,6 +76,7 @@ class FrameSummary:
     shape: list[int] | None  # [rows, cols] of the subset grid
     pixel_size_m: list[float] | None  # [dx, dy] in metres
     n_pixels_in_bbox: int | None  # pixel centres inside the bbox polygon
+    bbox_coverage_pct: float | None  # share of the bbox polygon inside the subset grid
     pct_valid: float | None  # valid pixel-epochs / (pixels in bbox x epochs), percent
     pct_valid_epoch_min: float | None
     pct_valid_epoch_median: float | None
