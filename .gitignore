@@ -1,0 +1,13 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+
+# Pipeline data (raw downloads, interim stacks, products) never goes in git
+data/
+
+# Secrets never go in git
+.netrc
+.env

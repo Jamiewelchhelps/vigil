@@ -1,0 +1,25 @@
+# Regions processed by the pipeline.
+# bbox is [west, south, east, north] in degrees (EPSG:4326 longitude/latitude).
+
+houston:
+  description: >-
+    Northwest Harris County (Katy, Cypress, Jersey Village), about 30 x 30 km.
+    Picked as an area of known active subsidence from published HGSD/USGS maps [E];
+    M1 velocities and GPS confirm or reject that.
+  bbox: [-95.82, 29.76, -95.51, 30.03]
+  product_version: "1.0"
+  frames:
+    # Found with `python -m pipeline.ingest --region houston --find-frames` (NASA CMR, 2026-11-06).
+    # Both orbit directions exist, so M2 can decompose LOS into vertical + east.
+    - frame_id: 38238
+      direction: descending
+      path: 143
+    - frame_id: 8882
+      direction: ascending
+      path: 34
+  excluded_frames:
+    - frame_id: 38239
+      reason: >-
+        Returned by the CMR bbox search, but its granule footprint covers 0% of the bbox
+        and it has only 14 granules (2016-07-24 to 2016-11-09). Frame 38238 covers 100%.
+  gps_stations: []  # filled in M1
